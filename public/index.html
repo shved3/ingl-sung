@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Evidence – nachvollziehbare KI · Konzept für ING (Hochschulprojekt)</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <button class="burger" data-act="menu" aria-label="Menü">☰</button>
+  <div class="brand" id="brand"></div>
+  <div class="crumb" id="crumb"></div>
+  <span class="sp"></span>
+  <span class="meta">Konzept · Demodaten</span>
+  <span class="status" id="status"></span>
+  <div class="user" id="user"></div>
+</header>
+<div class="shell">
+  <nav class="nav" id="nav"></nav>
+  <div class="center">
+    <main class="view" id="view"></main>
+    <div class="composer" id="composer">
+      <div class="cbox">
+        <button class="clip" data-act="upload" title="Dokument hinzufügen" aria-label="Dokument hinzufügen">📎</button>
+        <textarea id="frage" rows="1" placeholder="Frage zu den Dokumenten stellen …"></textarea>
+        <button class="send" data-act="senden" id="send" aria-label="Senden">➤</button>
+      </div>
+      <label class="zweck"><input type="checkbox" id="zweck"> Antwort wird für eine Entscheidung verwendet (mit menschlicher Prüfung und Freigabe)</label>
+    </div>
+  </div>
+  <aside class="right" id="right"></aside>
+</div>
+<div id="modal"></div>
+<input type="file" id="file" accept=".pdf,.docx,.txt,.md,.csv" hidden>
+<script src="app.js"></script>
+</body>
+</html>

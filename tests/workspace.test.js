@@ -13,7 +13,7 @@ before(async () => {
   temp = await mkdtemp(path.join(tmpdir(), 'evidence-test-'));
   process.env.DATA_DIR = temp;
   process.env.EVIDENCE_SETUP_TOKEN = secret;
-  for (const key of ['VERCEL', 'TURSO_DATABASE_URL', 'TURSO_AUTH_TOKEN', 'OPENAI_API_KEY', 'APP_ORIGIN']) delete process.env[key];
+  for (const key of ['VERCEL', 'TURSO_DATABASE_URL', 'TURSO_AUTH_TOKEN', 'OPENAI_API_KEY', 'OLLAMA_MODEL', 'APP_ORIGIN']) delete process.env[key];
 });
 after(async () => rm(temp, {
   recursive: true,
@@ -253,7 +253,9 @@ test('KI-Pfad mit simuliertem Modell: wichtige Kontextquelle auch bei ausgelasse
     if (calls === 1) {
       const source = inputs.abschnitte.find(p => p.quelle === 'Bericht');
       output = {
-        text: 'Der Auftrag umfasst 500 Geräte.',
+        fazit: 'Der Auftrag umfasst 500 Geräte.',
+        begruendung: 'Der Bericht nennt die Stückzahl ausdrücklich.',
+        luecke: '',
         missing: false,
         refs: [{
           id: source.id,
@@ -286,6 +288,8 @@ test('KI-Pfad mit simuliertem Modell: wichtige Kontextquelle auch bei ausgelasse
     });
     const r = (await send(employee)).value.history[0].result;
     assert.equal(calls, 2);
+    assert.equal(r.text, 'Der Auftrag umfasst 500 Geräte.');
+    assert.equal(r.reasoning, 'Der Bericht nennt die Stückzahl ausdrücklich.');
     assert.equal(r.score, 100);
     assert.equal(r.review.status, 'pending');
     assert(r.review.sources.includes('Wichtige ergänzende Richtlinie'));

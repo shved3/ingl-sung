@@ -1,6 +1,6 @@
 import { database } from './database.js';
 import { uid, hash, fail, clean, roles, canUpload, canReview, emailOf, passwordHash, login, person, cookieToken, newSession, sessionCookie } from './auth.js';
-import { answer, modelConfigured } from './evaluate.js';
+import { answer, modelConfigured, sourceThreshold } from './evaluate.js';
 import { timingSafeEqual } from 'node:crypto';
 function json(payload, status = 200, cookie) {
   const h = {
@@ -36,7 +36,8 @@ function provenance(result, docs) {
       key,
       source: d.sourceId || d.id,
       scopeHash: hash(d.body),
-      important: d.importance === 'important'
+      inContext: (result.contextDependencies || result.dependencies).includes(key),
+      important: (result.contextDependencies || result.dependencies).includes(key) && d.importance === 'important'
     };
   });
 }
@@ -45,8 +46,8 @@ function applyPolicy(row, docs, decisions) {
   const prov = r.provenance || [];
   const current = prov.map(p => docs.find(d => d.id === p.key || d.id === p.source || d.sourceId === p.source && hash(d.body) === p.scopeHash));
   if (current.some(d => !d)) return null;
-  const important = prov.filter((p, i) => p.important || current[i].importance === 'important');
-  const mark = important.length && r.refs.length > 0;
+  const important = prov.filter((p, i) => p.inContext !== false && (p.important || current[i].importance === 'important'));
+  const mark = important.length && (r.audit || r.refs.length > 0);
   const signature = mark ? hash(JSON.stringify(current.map((d, i) => [prov[i].source, d.revision, prov[i].important]))) : null;
   const decision = signature && decisions.find(x => x.message === row.id && x.signature === signature);
   const review = mark ? {
@@ -65,10 +66,15 @@ function applyPolicy(row, docs, decisions) {
       doc: current[index].id
     };
   });
+  const audit = r.audit ? { ...r.audit, sources: r.audit.sources.map(source => {
+    const index = prov.findIndex(p => p.key === source.doc);
+    return index < 0 ? source : { ...source, doc: current[index].id };
+  }) } : undefined;
   return {
     ...row,
     result: {
       ...r,
+      ...(audit && { audit }),
       refs,
       review
     }
@@ -151,6 +157,7 @@ async function handle(req) {
     return json({
       auth: true,
       aiEnabled: modelConfigured(process.env),
+      sourceThreshold: sourceThreshold(process.env),
       me: u,
       docs: docs.map(({
         body,
@@ -167,7 +174,7 @@ async function handle(req) {
       queue,
       requests,
       users,
-      live: !!process.env.OPENAI_API_KEY
+      live: modelConfigured(process.env)
     });
   }
   if (b.action === 'read') {
@@ -197,9 +204,11 @@ async function handle(req) {
     const history = rows.reverse().map(x => applyPolicy(x, docs, [])).filter(Boolean).map(h => ({
       frage: h.question,
       antwort: [h.result.text, h.result.reasoning, h.result.gap].filter(Boolean).join('\n'),
-      dependencies: h.result.dependencies
+      dependencies: h.result.dependencies,
+      contextDependencies: h.result.contextDependencies
     }));
-    const r = await answer(process.env, docs, question, history);
+    const threshold = sourceThreshold(process.env, b.threshold);
+    const r = await answer(process.env, docs, question, history, { threshold });
     r.provenance = provenance(r, docs);
     if (!applyPolicy({
       result: JSON.stringify(r)

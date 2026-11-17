@@ -38,8 +38,10 @@ test('Lokales Modell leitet Fazit aus Ziel und Ist ab, beide Fundstellen bleiben
 
 test('Bei fehlender Zielvorgabe bleibt der konkrete Nachweisbedarf sichtbar', async t => {
   const gap = 'Für die Entscheidung fehlt die Zielvorgabe für Mai.';
-  simulate(t, [{ fazit: '', begruendung: '', missing: true, luecke: gap, refs: [] }]);
+  const call = simulate(t, [{ fazit: '', begruendung: '', missing: true, luecke: gap, refs: [] }, { widerspruch: false, kriterien: Array.from({ length: 20 }, () => ({ wert: 0, grund: 'Nachweis fehlt.' })), gegenbelege: [] }]);
   const r = await answer({ OPENAI_API_KEY: 'test-only' }, docs.slice(1), question);
+  assert.equal(call.mock.calls.length, 2);
+  assert.equal(r.audit.steps.find(s => s.id === 'ai2').status, 'done');
   assert.equal(r.gap, gap);
   assert.equal(r.text, '');
   assert.equal(r.score, null);

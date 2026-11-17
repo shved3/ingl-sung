@@ -298,6 +298,44 @@ test('KI-Pfad mit simuliertem Modell: wichtige Kontextquelle auch bei ausgelasse
     delete process.env.OPENAI_API_KEY;
   }
 });
+
+test('Schwellenvalidierung und persistierter Prüfverlauf', async () => {
+  for (const threshold of [-1, 101, 1.5, null, '']) {
+    await send(employee, { action: 'ask', question: 'Auftrag?', threshold }, 400);
+  }
+  await send(employee, { action: 'ask', question: 'Auftrag?', threshold: 91 });
+  const r = (await send(employee)).value.history[0].result;
+  assert.equal(r.audit.threshold, 91);
+  assert(r.audit.sources.length);
+  assert.equal(r.audit.steps.find(s => s.id === 'ai1').status, 'skipped');
+});
+test('Auch ausgeschlossene Audit-Fundstellen werden bei Widerruf verborgen', async () => {
+  await send(employee, { action: 'request', recipient: 'manager@example.invalid', purpose: 'Temporärer Audit-Test' });
+  const req = (await send(manager)).value.requests.find(r => r.purpose === 'Temporärer Audit-Test');
+  await send(manager, { action: 'approve', id: req.id, doc: privateId, excerpt: 'Das Kennwort lautet Phlox.', days: 1 });
+  await send(employee, { action: 'ask', question: 'Wie viele Geräte umfasst der Auftrag?' });
+  let row = (await send(employee)).value.history[0];
+  assert(row.result.audit.sources.some(s => s.decision === 'excluded' && s.quote.includes('Phlox')));
+  await send(manager, { action: 'revoke', id: req.id });
+  row = (await send(employee)).value.history.find(r => r.id === row.id);
+  assert(!JSON.stringify(row).includes('Phlox'));
+  assert.equal(row.result.audit, undefined);
+});
+test('Wichtige Quelle bleibt bei niedrigen Punkten und ohne KI-Zitat fachprüfpflichtig', async t => {
+  await send(manager, { action: 'upload', name: 'Abweichungsnachtrag', text: 'Der Auftrag wurde storniert.', importance: 'important', team: true });
+  process.env.OLLAMA_MODEL = 'test-only';
+  const call = t.mock.method(globalThis, 'fetch', async () => { throw Error('KI-Ausfall'); });
+  try {
+    await send(employee, { action: 'ask', question: 'Wie viele Geräte umfasst der Auftrag?', threshold: 95 });
+    const row = (await send(employee)).value.history[0];
+    assert.equal(call.mock.calls.length, 1);
+    assert.equal(row.result.refs.length, 0);
+    assert.equal(row.result.review.status, 'pending');
+    assert(row.result.review.sources.includes('Abweichungsnachtrag'));
+    assert(row.result.audit.sources.some(s => s.name === 'Abweichungsnachtrag' && s.decision === 'protected'));
+    assert((await send(reviewer)).value.queue.some(r => r.id === row.id));
+  } finally { delete process.env.OLLAMA_MODEL; }
+});
 test('Abmeldung beendet die Serversitzung', async () => {
   await send(employee, {
     action: 'logout'

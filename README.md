@@ -75,3 +75,59 @@ Die Leseberechtigung ist von der Wichtigkeit unabhängig. Beim Import sind Dokum
 Im Ordner `client/` stehen die bearbeitbaren React-Komponenten. Nach Änderungen `npm install` und `npm run build:client` ausführen. Die fertigen JS-, CSS- und PDF-Lesedateien sind bereits enthalten. `server/` enthält Sitzungen, Datenbankadapter, Rechte, Prüfung und Quellenanalyse. `public/style.css` enthält das Erscheinungsbild. Das ING-Logo wird über die öffentliche ING-Logodatei geladen; ist sie nicht verfügbar, erscheint ein Schriftzug. Für eine rein lokal ausgelieferte Marke eine für das Projekt freigegebene Originaldatei nach `public/` legen und den Bildpfad in der Komponente Brand anpassen.
 
 Diese Ausgabe ist ein eigenständiger Hochschulprototyp mit lokaler Kontoverwaltung. Ein bankinterner Produktivbetrieb mit SSO, revisionssicherem Audit und entsprechender Infrastruktur wäre ein eigenes Integrationsprojekt.
+
+## Sichtbarer Prüfverlauf und Punkteschwelle
+
+Jede neue Anfrage speichert ihren Prüfverlauf zusammen mit der Antwort. Im Chat
+stehen die ausgeführten Schritte, die verwendete Schwelle, alle Einzelbewertungen,
+ausgeschlossene Fundstellen und offene Nachweise. Während der Anfrage wird ein
+Verarbeitungshinweis angezeigt; die tatsächlichen Schritte erscheinen nach Abschluss.
+Alte Antworten behalten ihren bisherigen Inhalt und erhalten keinen nachträglich
+erfundenen Prüfverlauf. Über „Erneut prüfen“ entsteht eine neue Bewertung.
+
+Die Punkteschwelle kann vor jeder Anfrage im Chat von 0 bis 100 eingestellt werden.
+Sie ändert keine bereits gespeicherte Bewertung. Optional setzt die serverseitige
+Umgebungsvariable `EVIDENCE_SOURCE_THRESHOLD` den Standardwert (sonst 70).
+Codepunkte bewerten Suchbezug (40), angegebenen Herausgeber (20), angegebenen
+Prüfstatus (20), auffindbare Fundstelle (10) und verfügbaren Originaltext (10).
+Sie sind keine Wahrheitswahrscheinlichkeit oder fachliche Freigabe. Importangaben
+werden nicht unabhängig auf Echtheit geprüft.
+
+Alle Absätze einer Quelle mit Worttreffern bleiben im KI-Kontext. Unterhalb der
+Schwelle werden sie als mögliche Gegenbelege oder Kontext gekennzeichnet und müssen
+von KI 2 einzeln bewertet werden. Die Ausnahme setzt den Codewert nicht herauf.
+Auch regulär ausgewählte Fundstellen müssen auf Widersprüche geprüft werden.
+Quellen ohne Suchbezug erscheinen mit Ausschlussgrund. Die wortbasierte Suche kann
+sinngemäß relevante Quellen ohne Worttreffer übersehen; Fragen und Quellenbestand
+müssen bei Bedarf ergänzt werden. Bei mehr als 200 relevanten Fundstellen oder
+90.000 Zeichen wird die KI-Auswertung angehalten, statt Gegenbelege stillschweigend
+abzuschneiden. Der Quellenverlauf bleibt sichtbar.
+
+KI 1 erstellt einen belegten Antwortentwurf; Zitate werden zusätzlich per Code
+gegen den Originaltext geprüft. KI 2 erhält die zugelassenen Fundstellen und den
+Entwurf in einer separaten Modellabfrage, auch bei offenen Nachweisen. Fehlende
+Prüfurteile, Ausfälle, Widersprüche und ungeklärte Gegenbelege führen zu keiner
+positiven KI-Bewertung. Das ist eine Prüfung in zwei Modellaufrufen und keine
+Garantie unabhängiger Fehler. Für Ollama kann optional `OLLAMA_MODEL_PRUEFER` ein
+anderes Prüfmodell wählen; andernfalls wird `OLLAMA_MODEL` in beiden Aufrufen
+verwendet. Für OpenAI gilt weiterhin `OPENAI_MODEL_PRUEFER`.
+
+Wichtige Quellen im Auswertungskontext lösen weiterhin eine unabhängige menschliche
+Fachprüfung aus, auch bei niedrigen Punkten, ausgelassenen Zitaten oder KI-Ausfällen.
+Ausgeschlossene Quellen lösen allein keine Fachprüfung aus. Der ganze gespeicherte
+Prüfverlauf unterliegt der bestehenden Zugriffskontrolle; wird eine darin enthaltene
+Quelle entzogen, wird auch der Verlauf zurückgehalten.
+
+### Geänderte Dateien ersetzen
+
+Das Ergänzungs-ZIP enthält Pfade relativ zum Projektverzeichnis, in dem
+`package.json` liegt: beispielsweise `server/evaluate.js`, `client/Workspace.jsx`
+und `public/app.js`. Dort entpacken und vorhandene Dateien ersetzen. Das Frontend
+in `public/app.js` ist bereits neu gebaut. Datenbank und bestehende
+Umgebungsvariablen bleiben erhalten; es ist keine Datenbankmigration erforderlich.
+Beim Selfhosting den Node-Prozess neu starten, bei Vercel das geänderte Projekt
+neu deployen. Ein bloßer Austausch im Browser aktiviert keinen neuen Servercode.
+
+Prüfung: `npm test`. Die Tests verwenden simulierte Modellantworten und prüfen
+unter anderem Schwellen, Gegenbelege, fehlende Prüfurteile, Kontextgrenzen,
+Zugriffswiderruf und die unabhängige menschliche Fachprüfung.

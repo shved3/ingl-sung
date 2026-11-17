@@ -1,6 +1,6 @@
 import { database } from './database.js';
 import { uid, hash, fail, clean, roles, canUpload, canReview, emailOf, passwordHash, login, person, cookieToken, newSession, sessionCookie } from './auth.js';
-import { answer } from './evaluate.js';
+import { answer, modelConfigured } from './evaluate.js';
 import { timingSafeEqual } from 'node:crypto';
 function json(payload, status = 200, cookie) {
   const h = {
@@ -150,6 +150,7 @@ async function handle(req) {
     const users = u.role === 'admin' ? await db.all('SELECT name,email,role FROM users ORDER BY name') : [];
     return json({
       auth: true,
+      aiEnabled: modelConfigured(process.env),
       me: u,
       docs: docs.map(({
         body,
@@ -195,7 +196,7 @@ async function handle(req) {
     const rows = await db.all('SELECT * FROM messages WHERE user=? AND thread=? ORDER BY created DESC LIMIT 3', u.id, thread);
     const history = rows.reverse().map(x => applyPolicy(x, docs, [])).filter(Boolean).map(h => ({
       frage: h.question,
-      antwort: h.result.text,
+      antwort: [h.result.text, h.result.reasoning, h.result.gap].filter(Boolean).join('\n'),
       dependencies: h.result.dependencies
     }));
     const r = await answer(process.env, docs, question, history);

@@ -75,7 +75,7 @@ async function model(env, system, data, review = false) {
   } else if (env.GROQ_API_KEY?.trim()) {
     endpoint = 'https://api.groq.com/openai/v1/chat/completions';
     apiKey = env.GROQ_API_KEY.trim();
-    modelName = (review && env.GROQ_MODEL_PRUEFER?.trim()) || env.GROQ_MODEL?.trim() || 'openai/gpt-oss-120b';
+    modelName = review ? (env.GROQ_MODEL_PRUEFER?.trim() || 'openai/gpt-oss-20b') : (env.GROQ_MODEL?.trim() || 'openai/gpt-oss-120b');
   }
   let response;
   try {

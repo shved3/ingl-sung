@@ -33,7 +33,7 @@ export function passages(docs, question) {
   return all.sort((a, b) => b.score - a.score);
 }
 export function modelConfigured(env) {
-  return Boolean(env.OLLAMA_MODEL?.trim() || env.OPENAI_API_KEY?.trim());
+  return Boolean(env.OLLAMA_MODEL?.trim() || env.GROQ_API_KEY?.trim() || env.OPENAI_API_KEY?.trim());
 }
 
 class ModelError extends Error {
@@ -63,18 +63,24 @@ function recordModelError(error, stage) {
 }
 async function model(env, system, data, review = false) {
   const localModel = env.OLLAMA_MODEL?.trim();
-  const endpoint = localModel
-    ? (env.OLLAMA_URL?.trim() || 'http://127.0.0.1:11434').replace(/\/+$/, '') + '/v1/chat/completions'
-    : 'https://api.openai.com/v1/chat/completions';
-  const modelName = localModel
-    ? (review && env.OLLAMA_MODEL_PRUEFER?.trim() || localModel)
-    : (review && env.OPENAI_MODEL_PRUEFER?.trim() || env.OPENAI_MODEL?.trim() || 'gpt-4.1-mini');
+  let endpoint = 'https://api.openai.com/v1/chat/completions';
+  let apiKey = env.OPENAI_API_KEY?.trim();
+  let modelName = (review && env.OPENAI_MODEL_PRUEFER?.trim()) || env.OPENAI_MODEL?.trim() || 'gpt-4.1-mini';
+  if (localModel) {
+    endpoint = (env.OLLAMA_URL?.trim() || 'http://127.0.0.1:11434').replace(/\/+$/, '') + '/v1/chat/completions';
+    apiKey = null;
+    modelName = (review && env.OLLAMA_MODEL_PRUEFER?.trim()) || localModel;
+  } else if (env.GROQ_API_KEY?.trim()) {
+    endpoint = 'https://api.groq.com/openai/v1/chat/completions';
+    apiKey = env.GROQ_API_KEY.trim();
+    modelName = (review && env.GROQ_MODEL_PRUEFER?.trim()) || env.GROQ_MODEL?.trim() || 'openai/gpt-oss-120b';
+  }
   let response;
   try {
     response = await fetch(endpoint, {
       method: 'POST',
       headers: {
-        ...(!localModel && { Authorization: 'Bearer ' + env.OPENAI_API_KEY.trim() }),
+        ...(apiKey && { Authorization: 'Bearer ' + apiKey }),
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({ model: modelName, response_format: { type: 'json_object' },

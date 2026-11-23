@@ -358,6 +358,25 @@ export async function answer(env, docs, question, history = [], options = {}) {
       task: content(c.prueffrage), refs: evidence.map(p => ref(p, p.body)) };
   });
   if (!result.claims.length) result.claims = pendingClaims;
+  // Do not transfer a documented conclusion to an acronym absent from its cited sources.
+  const entities = [...new Set(question.match(/\b[A-ZÄÖÜ]{2,}\b/g) || [])];
+  const hasWord = (text, word) => text.split(/[^\p{L}\p{N}]+/u).includes(word);
+  for (const claim of result.claims) {
+    const unsupported = entities.filter(word => hasWord(claim.text, word) &&
+      !claim.refs.some(ref => hasWord(ref.quote + ' ' + ref.name, word)));
+    if (unsupported.length) {
+      claim.kind = 'offen';
+      claim.task = 'Welche Quelle belegt die Übertragbarkeit dieser Aussage auf ' + unsupported.join(', ') + '?';
+    }
+  }
+  const ungrounded = entities.filter(word => hasWord(conclusion, word) &&
+    !refs.some(ref => hasWord(ref.quote + ' ' + ref.name, word)));
+  if (ungrounded.length) {
+    result.text = 'Für ' + ungrounded.join(', ') + ' ist die Schlussfolgerung anhand der zitierten Quellen offen.';
+    result.missing = true;
+    result.gap = [result.gap, 'Eine auf ' + ungrounded.join(', ') + ' anwendbare Grundlage nachweisen.'].filter(Boolean).join(' ');
+    result.reasoning = 'Unbestätigter KI-Entwurf zur Fachprüfung: ' + reasoning;
+  }
   const counters = Array.isArray(judgment?.gegenbelege) ? judgment.gegenbelege : [];
   if (groq) for (const c of counters) if (c && citations.has(c.id)) c.id = citations.get(c.id).id;
   const counterValid = counters.length === protectedPicks.length && new Set(counters.map(c => c?.id)).size === counters.length

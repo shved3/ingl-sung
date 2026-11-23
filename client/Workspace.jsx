@@ -121,11 +121,14 @@ function Result({
   aiEnabled
 }) {
   const r = row.result;
-  const heading = r.mode === 'KI'
+  const generationFailed = r.mode === 'KI' && !r.text && r.audit?.steps?.some(s => s.id === 'ai1' && s.status === 'failed');
+  const heading = generationFailed ? 'Keine KI-Antwort erstellt' : r.mode === 'KI'
     ? (r.missing ? (r.reasoning && r.text ? 'Teilergebnis' : 'Klärungsbedarf') : r.warning ? 'KI-Entwurf · Prüfung offen' : r.review?.status === 'pending' ? 'Schlussfolgerung · Fachprüfung ausstehend' : r.review?.status === 'rejected' ? 'Fachlich abgelehnte Schlussfolgerung' : 'Schlussfolgerung')
     : r.mode === 'Quellensuche' ? 'Ergebnis der Quellensuche' : 'Zugriff';
-  return <div className="turn"><div className="bubble">{row.question}</div><div className="answername"><span className="smallMark"><Layers size={16} /></span>Evidence <small>{r.mode}</small></div><ReviewBadge r={r} /><h3 className="resultHeading">{heading}</h3>
- {r.text && <p className="answer">{r.text}</p>}
+  return <div className="turn"><div className="bubble">{row.question}</div><div className="answername"><span className="smallMark"><Layers size={16} /></span>Evidence <small>{r.mode}</small></div><h3 className="resultHeading">{r.mode === 'KI' && r.text ? 'Antwort von KI 1' : heading}</h3>
+ {r.text && <p className={r.mode === 'KI' ? 'answer primaryAnswer' : 'answer'}>{r.mode === 'KI' ? <strong>{r.text}</strong> : r.text}</p>}
+ {r.mode === 'KI' && r.text && <p className="answerStatus">{heading}</p>}
+ <ReviewBadge r={r} />
  {r.reasoning && <><h4 className="resultSubheading">Begründung</h4><p className="answer">{r.reasoning}</p></>}
  {r.gap && <p className="answer"><b>Offener Punkt</b><br />{r.gap}</p>}
  {r.mode === 'Quellensuche' && aiEnabled && <button className="textBtn" disabled={busy} onClick={() => repeat(row.question)}>Mit KI beantworten</button>}
@@ -335,7 +338,7 @@ export default function Workspace() {
                 if (!busy && !auth) ask(question);
               }
             }} /><div className="composerLine"><button type="button" className="attach" onClick={() => manager ? pop('upload') : go('Dokumente')}><Paperclip size={16} />{manager ? 'Dokument hinzufügen' : 'Quellen ansehen'}</button><button aria-label="Frage senden" className="send" disabled={busy || auth || !question.trim()}><ArrowUp size={19} /></button></div></form>
- <div className="under"><span><span className={'tinyDot ' + (data.live ? 'green' : '')} />{data.live ? 'KI-Analyse aktiv' : 'Quellensuche'}</span><button onClick={() => go('Dokumente')}>{data.docs.length} zugängliche Dokumente <ChevronRight size={12} /></button></div>{busy && <p role="status" className="wait">Quellenbewertung und gegebenenfalls KI-Prüfungen laufen. Der tatsächliche Prüfverlauf erscheint mit dem Ergebnis …</p>}</div>
+ <div className="under"><span><span className={'tinyDot ' + (data.live ? 'green' : '')} />{data.live ? 'KI konfiguriert' : 'Quellensuche'}</span><button onClick={() => go('Dokumente')}>{data.docs.length} zugängliche Dokumente <ChevronRight size={12} /></button></div>{busy && <p role="status" className="wait">Quellenbewertung und gegebenenfalls KI-Prüfungen laufen. Der tatsächliche Prüfverlauf erscheint mit dem Ergebnis …</p>}</div>
  {!rows.length && <div className="startCards"><button onClick={() => go('Dokumente')}><span className="square"><FolderOpen /></span><div><b>Dokumente</b><small>Quellen verwalten</small></div><ArrowRight size={16} /></button><button onClick={() => go('Freigaben')}><span className="square"><KeyRound /></span><div><b>Freigaben</b><small>Nachweise anfragen</small></div><ArrowRight size={16} /></button></div>}
  </div>}
  {view !== 'Chat' && <section className="workspace"><div className="sectionTitle"><div><h1>{view}</h1><p>{{

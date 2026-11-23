@@ -85,7 +85,8 @@ async function model(env, system, data, review = false) {
         ...(apiKey && { Authorization: 'Bearer ' + apiKey }),
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ model: modelName, ...(!(review && !localModel && env.GROQ_API_KEY?.trim()) && { response_format: { type: 'json_object' } }),
+      body: JSON.stringify({ model: modelName,
+        ...(review && !localModel && env.GROQ_API_KEY?.trim() && modelName.startsWith('openai/gpt-oss-') && { reasoning_effort: 'low', max_completion_tokens: 4096 }), ...(!(review && !localModel && env.GROQ_API_KEY?.trim()) && { response_format: { type: 'json_object' } }),
         messages: [{ role: 'system', content: system }, { role: 'user', content: JSON.stringify(data) }] }),
       signal: AbortSignal.timeout(45000)
     });
@@ -104,7 +105,7 @@ async function model(env, system, data, review = false) {
   if (choice?.message?.refusal || choice?.finish_reason === 'content_filter') throw new ModelError('refusal', 'Das Modell hat diese Anfrage abgelehnt. Frage und Quellen prüfen.');
   if (choice?.finish_reason === 'length') throw new ModelError('truncated', 'Die Modellantwort wurde wegen des Ausgabelimits abgeschnitten. Frage eingrenzen.');
   if (typeof choice?.message?.content !== 'string' || !choice.message.content.trim()) throw new ModelError('empty_response', 'Das Modell lieferte keinen Antworttext. Modellkonfiguration prüfen.');
-  try { return JSON.parse(choice.message.content.trim().replace(/^```(?:json)?\s*([\s\S]*?)\s*```$/i, '$' + '1')); }
+  try { return JSON.parse(choice.message.content.trim().replace(/^```(?:json)?\s*([\s\S]*?)\s*```$/i, '$1')); }
   catch { throw new ModelError('invalid_json', 'Die Modellantwort entspricht nicht dem erwarteten JSON-Format. Erneut versuchen oder ein kompatibles Modell konfigurieren.'); }
 }
 
@@ -271,7 +272,7 @@ export async function answer(env, docs, question, history = [], options = {}) {
       'Antworte ausschließlich mit einem vollständigen JSON-Objekt ohne Markdown oder Einleitung. Gib JSON {widerspruch:boolean,hinweis:string,kriterien:[{wert,grund}],gegenbelege:[{id,urteil,grund}]} zurück.',
       'kriterien enthält genau 20 Einträge in der angegebenen Reihenfolge: wert=2 erfüllt, 1 teilweise, 0 fehlt/fehlerhaft, null sachlich nicht anwendbar (begründen). Fehlender Nachweis ist 0.',
       'gegenbelege enthält für JEDE ID aus pflichtpruefung genau einen Eintrag. urteil ist widerspricht, stützt, unklar oder nicht_relevant. Begründe konkret anhand des Textes und der Frage.',
-      'Suche auch in hoch bewerteten Abschnitten nach Gegenbelegen. Ein niedriger Codewert darf weder Widersprüche noch Unsicherheit entkräften.',
+      'Halte jeden grund kurz (ein Satz). Übernimm jede geforderte ID exakt. Suche auch in hoch bewerteten Abschnitten nach Gegenbelegen. Ein niedriger Codewert darf weder Widersprüche noch Unsicherheit entkräften.',
       'Setze widerspruch=true bei materiellen Widersprüchen und benenne die strittige Angabe in hinweis. Keine menschliche Fachfreigabe behaupten.'
     ].join(' '), { ...input, abschnitte: groq ? picks.map(p => ({ id: p.id, quelle: p.name, text: p.body, auswahl: p.decision })) : sections, fazit: conclusion, begruendung: reasoning, luecke: gap, belege: refs,
       pflichtpruefung: protectedPicks.map(p => p.id), kriterien: groups.flatMap(g => g[1]) }, true);

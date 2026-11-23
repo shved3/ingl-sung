@@ -1,3 +1,4 @@
+import {checkDecisionScope} from './decisionScope.js';
 import {completeReview} from './completeReview.js';
 import {criterionNames, validateWeights} from '../shared/scoring.js';
 export const groups = [['Quelle', ['Herkunft dokumentiert', 'Für die Frage maßgebliche Quelle', 'Prüfstatus dokumentiert', 'Zeitlich passende Quelle']], ['Fundstelle', ['Fundstelle auffindbar', 'Zitat im Original gefunden', 'Passage trägt die Aussage', 'Kontext berücksichtigt']], ['Kennzahl', ['Kennzahl richtig definiert', 'Stichtag und Bezug stimmen', 'Einheit und Bezugsgröße stimmen', 'Rechenweg nachvollziehbar']], ['Fachlicher Kontext', ['Anwendbare Regel berücksichtigt', 'Voraussetzungen geprüft', 'Bereinigungen berücksichtigt', 'Gegenbelege berücksichtigt']], ['Schlussfolgerung', ['Kernfrage abgedeckt', 'Schluss folgt aus Belegen', 'Annahmen kenntlich gemacht', 'Unsicherheit benannt']]];
@@ -236,6 +237,7 @@ export async function answer(env, docs, question, history = [], options = {}) {
   const contextDependencies = [...new Set(picks.map(p => p.doc).concat(history.flatMap(h => h.contextDependencies || h.dependencies || [])))];
   const empty = { mode: ai ? 'KI' : 'Quellensuche', text: '', refs: [], groups: [], score: null, missing: true, dependencies, contextDependencies };
   const finish = result => {
+    checkDecisionScope(result, question, audit.sources);
     const needs = [];
     if (result.gap) needs.push(result.gap);
     if (result.warning) needs.push(result.warning);

@@ -64,3 +64,24 @@ test('Ein fachlicher Widerspruch wird vor der Ausgabe des Fazits berücksichtigt
   assert.equal(r.score, null);
   assert.equal(r.refs.length, 2);
 });
+
+for(const [party,source,expected] of [
+  ['Elbbank','Die Hafenbank muss den Kredit A-17 ablehnen.','offen'],
+  ['ING','Die Hafenbank muss den Kredit A-17 ablehnen. ING erhält eine Kopie.','offen'],
+  ['ING','ING muss den Kredit A-17 ablehnen, falls keine Bürgschaft vorliegt.','Wortlaut'],
+  ['ING','ING muss den Kredit A-17 ablehnen.','direkt']
+]){
+  test('Geltungsbereich der Kreditregel: '+source+' / '+party,async t=>{
+    const claim=party+' muss den Kredit A-17 ablehnen.';
+    const doc={id:'vertrag',name:'Kreditvertrag A-17',body:source,reviewed:true,issuer:'Kreditausschuss'};
+    simulate(t,[{fazit:claim,begruendung:'Die Regel gilt.',refs:[{id:'vertrag#0',quote:source}],missing:false,luecke:''},
+      {widerspruch:false,kriterien:Array.from({length:20},()=>({wert:2,grund:'Geprüft.'})),gegenbelege:[],
+      thesen:[{aussage:claim,art:'dokumentiert',ids:['vertrag#0']}]}]);
+    const r=await answer({OLLAMA_MODEL:'test'},[doc],'Darf '+party+' den Kredit A-17 genehmigen?');
+    if(expected==='direkt'){assert.equal(r.text,claim);assert.equal(r.missing,false);}
+    else{assert.equal(r.score,null);assert.equal(r.missing,true);
+      if(expected==='offen'){assert.match(r.text,/bleibt offen/);assert.equal(r.claims[0].kind,'offen');}
+      else assert(r.text.includes(source));
+    }
+  });
+}

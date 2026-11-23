@@ -4,7 +4,9 @@ function tokens(s) {
   return [...new Set(s.toLowerCase().match(/[\p{L}\d]+/gu) || [])].filter(w => w.length > 2 && !stop.has(w)).map(w => w.length > 6 ? w.slice(0, -2) : w);
 }
 export function passages(docs, question) {
-  const words = tokens(question);
+  const terms = tokens(question);
+  const dates = question.match(/\b\d{1,2}\.\d{1,2}\.\d{4}\b/g) || [];
+  const words = [...terms.filter(term => !dates.some(date => date.endsWith(term))), ...dates];
   const all = [];
   for (const d of docs) {
     const blocks = d.body.match(/[^\n]{1,1200}/g) || [];
@@ -216,6 +218,15 @@ export async function answer(env, docs, question, history = [], options = {}) {
     pruefstatus: p.reviewed ? 'beim Import als geprüft markiert' : 'nicht dokumentiert',
     codepunkte: p.points, auswahl: p.decision, grund: p.reason }));
   const input = { frage: question, verlauf: history, abschnitte: sections, punkteschwelle: threshold };
+  const groq = !env.OLLAMA_MODEL?.trim() && Boolean(env.GROQ_API_KEY?.trim());
+  const citations = new Map();
+  if (groq) {
+    input.abschnitte = picks.map((p, i) => {
+      const id = 'Q' + (i + 1);
+      citations.set(id, p);
+      return { id, quelle: p.name, text: p.body, auswahl: p.decision };
+    });
+  }
   let draft;
   try {
     draft = await model(env, [
@@ -224,6 +235,7 @@ export async function answer(env, docs, question, history = [], options = {}) {
       'Gib JSON mit fazit, begruendung, luecke, missing (boolean) und refs (Liste von {id,quote}) zurück. Die Textfelder sind Zeichenketten.',
       'fazit beantwortet die konkrete Frage direkt. begruendung verbindet belegte Tatsachen und zeigt bei Berechnungen Zahlen, Einheiten und Rechenweg.',
       'Belege jede wesentliche Tatsachenbehauptung durch ein wörtliches Zitat. Fehlt ein Nachweis oder widersprechen sich entscheidende Angaben, setze missing=true und benenne die offene Angabe in luecke.',
+      groq ? 'Für refs verwende ausschließlich Objekte mit id wie {"id":"Q3"}. Wähle die konkreten Abschnitte, die deine Aussagen tragen. Der Server übernimmt deren Originalwortlaut als Zitat.' : '',
       'Bei Lücken nur belegbare Teilergebnisse; ohne Beleg bleiben fazit und begruendung leer. Keine Aussagen über gesperrte Dateien. Keine Fachfreigabe behaupten.'
     ].join(' '), input);
   } catch (error) {
@@ -234,6 +246,10 @@ export async function answer(env, docs, question, history = [], options = {}) {
   }
   const content = value => typeof value === 'string' ? value.trim().slice(0, 6000) : '';
   const refs = Array.isArray(draft?.refs) ? draft.refs.flatMap(r => {
+    if (groq) {
+      const passage = citations.get(r?.id);
+      return passage ? [ref(passage, passage.body)] : [];
+    }
     const p = picks.find(p => p.id === r?.id);
     const quote = typeof r?.quote === 'string' ? r.quote.trim() : '';
     return p && quote.length >= 6 && p.body.includes(quote) ? [ref(p, quote)] : [];
@@ -257,7 +273,7 @@ export async function answer(env, docs, question, history = [], options = {}) {
       'gegenbelege enthält für JEDE ID aus pflichtpruefung genau einen Eintrag. urteil ist widerspricht, stützt, unklar oder nicht_relevant. Begründe konkret anhand des Textes und der Frage.',
       'Suche auch in hoch bewerteten Abschnitten nach Gegenbelegen. Ein niedriger Codewert darf weder Widersprüche noch Unsicherheit entkräften.',
       'Setze widerspruch=true bei materiellen Widersprüchen und benenne die strittige Angabe in hinweis. Keine menschliche Fachfreigabe behaupten.'
-    ].join(' '), { ...input, fazit: conclusion, begruendung: reasoning, luecke: gap, belege: refs,
+    ].join(' '), { ...input, abschnitte: groq ? picks.map(p => ({ id: p.id, quelle: p.name, text: p.body, auswahl: p.decision })) : sections, fazit: conclusion, begruendung: reasoning, luecke: gap, belege: refs,
       pflichtpruefung: protectedPicks.map(p => p.id), kriterien: groups.flatMap(g => g[1]) }, true);
   } catch (error) {
     const detail = recordModelError(error, 'ai2');

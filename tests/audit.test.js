@@ -62,11 +62,11 @@ test('Niedrig bewerteter wichtiger Gegenbeleg erreicht beide KIs und sperrt ein 
   assert(r.audit.openEvidence.some(s => /nicht erreicht/.test(s)));
 });
 test('Fehlende Gegenbeleg-Einzelprüfung darf keine positive Bewertung erzeugen', async t => {
-  model(t, (input, n) => n === 2 ? { widerspruch: false, kriterien: criteria(), gegenbelege: [] } : undefined);
+  model(t, (input, n) => n >= 2 ? { widerspruch: false, kriterien: criteria(), gegenbelege: [] } : undefined);
   const r = await answer({ OLLAMA_MODEL: 'test' }, sources, question);
   assert.equal(r.score, null);
-  assert.match(r.warning, /unvollständig/);
-  assert.equal(r.audit.steps.find(s => s.id === 'ai2').status, 'failed');
+  assert.match(r.warning, /1 von 1 möglichen Gegenbelegen/);
+  assert.equal(r.audit.steps.find(s => s.id === 'ai2').status, 'blocked');
 });
 test('Unklarer Gegenbeleg bleibt als offener Nachweis sichtbar', async t => {
   model(t, (input, n) => n === 2 ? { widerspruch: false, kriterien: criteria(), gegenbelege: [{ id: 'counter#0', urteil: 'unklar', grund: 'Der Zeitraum des Nachtrags ist offen.' }] } : undefined);
@@ -105,4 +105,14 @@ test('Individuelle Gewichte verändern die Punkteschwelle und bleiben im Audit e
  assert.equal(result.audit.sources[0].score,30);
  assert.equal(result.audit.sources[0].decision,'protected');
  await assert.rejects(()=>answer({},[base],'Vertrag?',[],{weights:[1,1,1,1,1]}));
+});
+
+test('Eine fehlende Einzelprüfung wird gezielt ergänzt',async t=>{
+ const calls=model(t,(input,n)=>{
+   if(n===2)return {widerspruch:false,kriterien:criteria(),gegenbelege:[]};
+   if(n===3){assert.deepEqual(input.kriterien,[]);assert.deepEqual(input.pflichtpruefung,['counter#0']);return {gegenbelege:[{id:'counter#0',urteil:'stützt',grund:'Begründeter Testfall.'}]};}
+ });
+ const result=await answer({OLLAMA_MODEL:'test'},sources,question);
+ assert.equal(calls.mock.calls.length,3);
+ assert.equal(result.audit.steps.find(s=>s.id==='ai2').status,'done');
 });

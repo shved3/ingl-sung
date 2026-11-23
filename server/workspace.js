@@ -51,6 +51,15 @@ function provenance(result, docs) {
 }
 function applyPolicy(row, docs, decisions) {
   const r = JSON.parse(row.result);
+  if(r.warning==='Die zweite KI-Prüfung ist unvollständig. Keine bestätigte Bewertung; Gegenbelege und Nachweise fachlich prüfen.'){
+    const previous=r.warning;
+    r.warning='Gesamtbewertung noch offen. Welche Einzelprüfung ausstand, wurde bei dieser Anfrage nicht gespeichert.';
+    if(r.audit){
+      r.audit.openEvidence=(r.audit.openEvidence||[]).filter(x=>x!==previous && x!=='Vollständige zweite KI-Prüfung steht aus.').concat(r.warning);
+      const step=r.audit.steps?.find(s=>s.id==='ai2');
+      if(step){step.status='blocked';step.detail=r.warning;}
+    }
+  }
   const prov = r.provenance || [];
   const current = prov.map(p => docs.find(d => d.id === p.key || d.id === p.source || d.sourceId === p.source && hash(d.body) === p.scopeHash));
   if (current.some(d => !d)) return null;

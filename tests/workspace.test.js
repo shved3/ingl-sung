@@ -346,3 +346,20 @@ test('Abmeldung beendet die Serversitzung', async () => {
     question: 'Unbefugt?'
   }, 401);
 });
+test('Originaldatei ist bytegenau, getrennt vom Auszug und serverseitig geprüft', async ()=>{
+  const bytes=Buffer.from('Rechnung 180,00 Euro'), {createHash}=await import('node:crypto');
+  const hash=createHash('sha256').update(bytes).digest('hex'), part={action:'stage',hash,part:0,bytes:bytes.toString('base64')};
+  await send(manager,part);
+  await send(manager,{action:'upload',name:'Archivtest',text:'Rechnung 180,00 Euro',importance:'normal',files:[{name:'Rechnung.txt',hash,size:bytes.length}]});
+  const doc=(await send(manager)).value.docs.find(d=>d.name==='Archivtest').id;
+  const read=(await send(manager,{action:'read',doc})).value;
+  assert.equal(read.files[0].hash,hash);
+  assert.equal((await send(manager,{action:'original',hash,part:0,doc})).value.bytes,part.bytes);
+  await send(reviewer,{action:'original',hash,part:0,doc},403);
+  await send(reviewer,{action:'request',recipient:'manager@example.invalid',purpose:'Archivtest Auszug'});
+  const request=(await send(manager)).value.requests.find(r=>r.purpose==='Archivtest Auszug');
+  await send(manager,{action:'approve',id:request.id,doc,excerpt:'180,00 Euro',days:1});
+  const grant=(await send(reviewer)).value.docs.find(d=>d.name==='Archivtest').id;
+  assert.deepEqual((await send(reviewer,{action:'read',doc:grant})).value.files,[]);
+  await send(reviewer,{action:'original',hash,part:0,doc:grant},403);
+});

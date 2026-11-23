@@ -97,3 +97,12 @@ test('Ohne Modell werden keine KI-Schritte als abgeschlossen ausgegeben', async 
   assert.equal(r.audit.steps.find(s => s.id === 'ai1').status, 'skipped');
   assert.equal(r.audit.steps.find(s => s.id === 'ai2').status, 'skipped');
 });
+test('Individuelle Gewichte verändern die Punkteschwelle und bleiben im Audit erhalten',async()=>{
+ const weights=[10,50,20,10,10];
+ const base={id:'x',name:'Vertrag',body:'Vertrag und Nachtrag',reviewed:0};
+ const result=await answer({},[base],'Vertrag?',[],{threshold:45,weights});
+ assert.deepEqual(result.audit.weights,weights);
+ assert.equal(result.audit.sources[0].score,30);
+ assert.equal(result.audit.sources[0].decision,'protected');
+ await assert.rejects(()=>answer({},[base],'Vertrag?',[],{weights:[1,1,1,1,1]}));
+});

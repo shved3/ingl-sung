@@ -1,3 +1,4 @@
+import {criterionNames, validateWeights} from '../shared/scoring.js';
 export const groups = [['Quelle', ['Herkunft dokumentiert', 'Für die Frage maßgebliche Quelle', 'Prüfstatus dokumentiert', 'Zeitlich passende Quelle']], ['Fundstelle', ['Fundstelle auffindbar', 'Zitat im Original gefunden', 'Passage trägt die Aussage', 'Kontext berücksichtigt']], ['Kennzahl', ['Kennzahl richtig definiert', 'Stichtag und Bezug stimmen', 'Einheit und Bezugsgröße stimmen', 'Rechenweg nachvollziehbar']], ['Fachlicher Kontext', ['Anwendbare Regel berücksichtigt', 'Voraussetzungen geprüft', 'Bereinigungen berücksichtigt', 'Gegenbelege berücksichtigt']], ['Schlussfolgerung', ['Kernfrage abgedeckt', 'Schluss folgt aus Belegen', 'Annahmen kenntlich gemacht', 'Unsicherheit benannt']]];
 const stop = new Set('der die das ein eine einem einen einer eines des im in ist sind war wie was welche welcher welches welchen wer und oder mit von zum zur für auf den dem aus sie mir du ich bitte über nach bei es an zu hat haben wird kann können dokument dokumente unterlagen frage mein meine gibt laut'.split(' '));
 function tokens(s) {
@@ -122,7 +123,8 @@ export function sourceThreshold(env = {}, value) {
 // A code score measures traceability and lexical relevance, never truth.
 // Keep ALL passages from matching documents as context: even a positive-sounding
 // or differently worded counterexample must not disappear at the score gate.
-export function assessSources(docs, question, threshold = 70) {
+export function assessSources(docs, question, threshold = 70, customWeights) {
+  const weights = validateWeights(customWeights);
   const all = passages(docs, question);
   const overview = /zusammenfass|zusammengefasst|überblick|worum geht|fasse.{0,45}zusammen/i.test(question);
   const relevantDocs = new Set(all.filter(p => p.score > 0 || overview).map(p => p.doc));
@@ -139,6 +141,10 @@ export function assessSources(docs, question, threshold = 70) {
       { label: 'Fundstelle auffindbar', points: 10, max: 10, reason: `Seite ${p.page}, Absatz ${p.position}.` },
       { label: 'Originaltext verfügbar', points: 10, max: 10, reason: 'Text aus dem aktuell zugänglichen Dokument übernommen.' }
     ];
+    for (const [i, criterion] of criteria.entries()) {
+      criterion.points = Math.round(weights[i] * criterion.points / criterion.max);
+      criterion.max = weights[i];
+    }
     const points = criteria.reduce((n, c) => n + c.points, 0);
     const decision = !relevant ? 'excluded' : points >= threshold ? 'accepted' : 'protected';
     return { ...p, points, criteria, decision,
@@ -197,7 +203,7 @@ export async function answer(env, docs, question, history = [], options = {}) {
   const threshold = sourceThreshold(env, options.threshold);
   const startedAt = new Date().toISOString();
   const contextualQuestion = question.length < 45 && history.length ? question + ' ' + history.at(-1).frage : question;
-  let assessed = assessSources(docs, contextualQuestion, threshold);
+  let assessed = assessSources(docs, contextualQuestion, threshold, options.weights);
   const groq = !env.OLLAMA_MODEL?.trim() && Boolean(env.GROQ_API_KEY?.trim());
   const matches = assessed.filter(p => p.decision !== 'excluded');
   const selective = groq && docs.length > 0 && (!matches.length || matches.reduce((size, p) => size + p.body.length + p.name.length + 100, 0) > 7500);
@@ -212,14 +218,14 @@ export async function answer(env, docs, question, history = [], options = {}) {
   const timestamp = () => new Date().toISOString();
   const steps = [
     { id: 'search', label: '1 · Zugängliche Quellen durchsuchen', status: 'done', at: timestamp(), detail: `${docs.length} Dokumente, ${assessed.length} Fundstellen; nur bestehende Leserechte.` },
-    { id: 'code', label: '2 · Codebasierte Quellenbewertung', status: 'done', at: timestamp(), detail: 'Feste Regeln: Suchbezug 40, Herkunft 20, Prüfstatus 20, Fundstelle 10, Originaltext 10 Punkte. Keine Wahrheitswahrscheinlichkeit.' },
+    { id: 'code', label: '2 · Codebasierte Quellenbewertung', status: 'done', at: timestamp(), detail: criterionNames.map((name,i) => name + ' ' + validateWeights(options.weights)[i]).join(', ') + ' Punkte. Keine Wahrheitswahrscheinlichkeit.' },
     { id: 'gate', label: '3 · Punkteschwelle und Gegenbelege', status: 'done', at: timestamp(), detail: `${threshold}/100 · ${picks.length - protectedPicks.length} regulär, ${protectedPicks.length} trotz niedriger Punkte beibehalten, ${assessed.length - picks.length} ausgeschlossen.` },
     { id: 'ai1', label: '4 · KI 1 erstellt die Antwort', status: 'skipped', detail: 'Noch nicht ausgeführt.' },
     { id: 'ai2', label: '5 · KI 2 prüft Antwort und Gegenbelege', status: 'skipped', detail: 'Noch nicht ausgeführt.' }
   ];
   const step = (id, status, detail) => Object.assign(steps.find(s => s.id === id), { status, detail, at: timestamp() });
   const audit = {
-    version: 1, startedAt, threshold, query: contextualQuestion, steps,
+    version: 1, startedAt, weights: validateWeights(options.weights), threshold, query: contextualQuestion, steps,
     limitation: 'Codepunkte prüfen formale Merkmale und Wortbezug. Sie bestätigen weder Wahrheit noch Vollständigkeit. Alle Absätze relevanter Quellen bleiben als Kontext erhalten; sinngemäß relevante Quellen ohne Worttreffer können fehlen.',
     sources: assessed.map(p => ({ id: p.id, doc: p.doc, name: p.name, page: p.page, position: p.position,
       quote: p.body, score: p.points, criteria: p.criteria, decision: p.decision, reason: p.reason, important: p.importance === 'important' })),

@@ -1,3 +1,8 @@
+import {Originals,stageFiles} from './Originals.jsx';
+import {formats,extractFiles,cloudFile} from './importFiles.js';
+let microsoftToken='';
+import {Scoring} from './Scoring.jsx';
+import {defaults,validateWeights} from '../shared/scoring.js';
 'use client';
 
 import { ReviewTools } from './ReviewTools.jsx';
@@ -19,44 +24,17 @@ async function api(body) {
   const r = await fetch('/api/workspace', body ? {
     method: 'POST',
     headers: {
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json', ...(microsoftToken && {'x-evidence-microsoft':microsoftToken})
     },
     body: JSON.stringify(body)
   } : {
-    cache: 'no-store'
+    cache: 'no-store', headers:microsoftToken?{'x-evidence-microsoft':microsoftToken}:{}
   });
   const result = await r.json();
   if (!r.ok) throw Object.assign(Error(result.error || 'Verbindung fehlgeschlagen.'), {
     status: r.status
   });
   return result;
-}
-async function extractFile(f) {
-  if (f.size > 15000000) throw Error('Bitte eine Datei unter 15 MB wählen.');
-  if (f.name.toLowerCase().endsWith('.pdf')) {
-    const moduleURL = new URL('/pdfjs/pdf.min.mjs', window.location.origin).href;
-    const pdfjs = await import(/* @vite-ignore */moduleURL);
-    pdfjs.GlobalWorkerOptions.workerSrc = '/pdfjs/pdf.worker.min.mjs';
-    const pdf = await pdfjs.getDocument({
-      data: await f.arrayBuffer(),
-      isEvalSupported: false
-    }).promise;
-    const parts = [];
-    try {
-      for (let i = 1; i <= pdf.numPages; i++) {
-        const text = await (await pdf.getPage(i)).getTextContent();
-        const lines = text.items.map(x => x.str + (x.hasEOL ? '\n' : ' ')).join('').trim();
-        if (lines) parts.push('[Seite ' + i + ']\n' + lines);
-        if (parts.join('\n').length > 200000) throw Error('Bitte auf 200.000 Zeichen kürzen.');
-      }
-    } finally {
-      await pdf.destroy();
-    }
-    if (!parts.length) throw Error('Dieses PDF enthält keinen auslesbaren Text.');
-    return parts.join('\n\n');
-  }
-  if (!/\.(txt|md|csv)$/i.test(f.name)) throw Error('Bitte PDF, TXT, MD oder CSV wählen.');
-  return await f.text();
 }
 function Brand() {
   return <div className="brand"><img src="/ing-logo.jpg" alt="ING" onError={e => {
@@ -106,7 +84,7 @@ function AuditTrail({ r, openDoc, request, question }) {
         <p>{source.reason}</p><blockquote>{source.quote}</blockquote>
         <div className="auditTable"><table><thead><tr><th>Kriterium</th><th>Punkte</th><th>Codeprüfung</th></tr></thead><tbody>{source.criteria.map(c => <tr key={c.label}><td>{c.label}</td><td>{c.points}/{c.max}</td><td>{c.reason}</td></tr>)}</tbody></table></div>
         {status === 'protected' && <p className="auditCounter"><b>Einzelprüfung durch KI 2: </b>{(() => { const check = a.counterChecks.find(c => c.id === source.id); return check ? check.urteil + ' · ' + check.grund : 'Offen – kein vollständiges Prüfurteil vorhanden.'; })()}</p>}
-        <button className="textBtn" onClick={() => openDoc(source.doc)}>Quelle öffnen <ArrowRight size={14} /></button>
+        <button className="textBtn" onClick={() => openDoc(source.doc,source.page)}>Quelle öffnen <ArrowRight size={14} /></button>
       </details>) : <p>Keine Fundstellen in dieser Gruppe.</p>}
     </details>)}
     {!!r.groups.length && <details className="auditBucket"><summary>Einzelbewertungen {r.mode === 'KI' ? 'durch KI 2' : 'der Quellensuche'}</summary>{r.groups.map(g => <section key={g.name}><h5>{g.name}</h5>{g.items.map(c => <p key={c.label}><b>{c.label} · {c.wert === null ? 'Entfällt' : c.wert + '/2'}</b><br />{c.grund}</p>)}</section>)}</details>}
@@ -134,7 +112,7 @@ function Result({
  {r.gap && <p className="answer"><b>Offener Punkt</b><br />{r.gap}</p>}
  {r.mode === 'Quellensuche' && aiEnabled && <button className="textBtn" disabled={busy} onClick={() => repeat(row.question)}>Mit KI beantworten</button>}
  {r.refs.length > 0 && <h4 className="resultSubheading">Belege</h4>}
- {r.refs.map((v, i) => <details className="quote" key={i}><summary><FileText size={15} />{v.name} <small>Abs. {v.position}</small><ChevronDown size={14} /></summary><blockquote>{v.quote}</blockquote><button className="textBtn" onClick={() => openDoc(v.doc)}>Quelle öffnen <ArrowRight size={14} /></button></details>)}
+ {r.refs.map((v, i) => <details className="quote" key={i}><summary><FileText size={15} />{v.name} <small>Abs. {v.position}</small><ChevronDown size={14} /></summary><blockquote>{v.quote}</blockquote><button className="textBtn" onClick={() => openDoc(v.doc,v.page)}>Quelle öffnen <ArrowRight size={14} /></button></details>)}
  {r.warning && <p className="warning">{r.warning}</p>}
  {r.score != null && <details className="rating"><summary><span className={'dot ' + (r.review?.status === 'pending' ? 'yellow' : r.review?.status === 'rejected' ? 'red' : r.score >= 70 ? 'green' : r.score >= 50 ? 'yellow' : 'red')} /><b>{r.score}/100</b> {r.mode === 'Quellensuche' ? 'Quellennachweis' : label(r.score)}<ChevronDown size={15} /></summary>{r.groups.map(g => <details key={g.name}><summary>{g.name}<ChevronDown size={14} /></summary>{g.items.map(c => <p key={c.label}><b>{c.label}</b> · {c.wert === null ? 'Entfällt' : c.wert + '/2'}<br />{c.grund}</p>)}</details>)}<small>Anteil der erreichten Punkte aus allen anwendbaren Kriterien.</small></details>}
  <ReviewTools row={row} previous={previous} allowRepeat={allowRepeat} repeat={repeat} busy={busy} />
@@ -151,6 +129,7 @@ export default function Workspace() {
     }),
     [thread, T] = useState(''),
     [question, Q] = useState(''),
+    [weights, setWeights] = useState(defaults),
     [threshold, setThreshold] = useState(null),
     [modal, M] = useState(''),
     [form, F] = useState({}),
@@ -239,6 +218,7 @@ export default function Workspace() {
   }
   const ask = (value, previousId) => {
     if (!value.trim()) return;
+    try { validateWeights(weights); } catch (e) { E(e.message); return; }
     const selectedThreshold = threshold ?? data.sourceThreshold ?? 70;
     if (!Number.isInteger(selectedThreshold) || selectedThreshold < 0 || selectedThreshold > 100) {
       E('Bitte eine ganze Punkteschwelle zwischen 0 und 100 eingeben.');
@@ -248,7 +228,7 @@ export default function Workspace() {
       const result = await api({
         action: 'ask',
         question: value, previousId,
-        threshold: threshold ?? data.sourceThreshold ?? 70,
+        weights, threshold: threshold ?? data.sourceThreshold ?? 70,
         thread
       });
       T(result.thread);
@@ -256,12 +236,12 @@ export default function Workspace() {
       V('Chat');
     });
   };
-  const openDoc = doc => run(async () => {
+  const openDoc = (doc,page) => run(async () => {
     const d = await api({
       action: 'read',
       doc
     });
-    pop('source', d);
+    pop('source', {...d,page});
   });
   const request = q => pop('request', {
     purpose: q,
@@ -273,14 +253,33 @@ export default function Workspace() {
     go('Chat');
   };
   const requestStatus = q => q.status === 'approved' && q.expires < Date.now() ? 'Abgelaufen' : stateNames[q.status];
+  async function importFiles(files,cloud=null) {
+    if(!files?.length)return;
+    R('Datei wird gelesen …'); E('');
+    try {
+      const result=await extractFiles(files,api,R);
+      F(f=>({...f,...result,name:files[0].name,localFiles:files,cloud,checked:false,team:false}));
+    }catch(e){E(e.message);}finally{R(false);}
+  }
+  async function syncCloud(){
+    R('Cloudverbindung …');E('');
+    try{
+      const {connect}=await import(new URL('/import/cloud.mjs',location.origin).href);
+      microsoftToken=await connect(data.cloudConfig);
+      const {file,cloud}=await cloudFile(microsoftToken,form.path.trim());
+      await importFiles([file],cloud);
+    }catch(e){E(e.message);}finally{R(false);}
+  }
   async function submit(e) {
     e.preventDefault();
     await run(async () => {
       if (modal === 'upload') {
+        const {localFiles,path,checked,ocr,...fields}=form;
+        const files=await stageFiles(localFiles||[],api);
         await api({
           action: 'upload',
           importance: 'normal',
-          ...form
+          ...fields,files
         });
       }
       if (modal === 'classify' || modal === 'user' || modal === 'check') {
@@ -317,6 +316,8 @@ export default function Workspace() {
           await api({
             action: 'logout'
           });
+          microsoftToken='';
+          setWeights(defaults);setThreshold(null);
           T('');
           Q('');
           V('Chat');
@@ -331,7 +332,7 @@ export default function Workspace() {
  {error && !modal && <p role="alert" className="error">{error} <button onClick={() => E('')}>Schließen</button></p>}
  {view === 'Chat' && <div className={'chatPane ' + (!rows.length ? 'empty' : '')}>
  {!rows.length ? <div className="welcome"><span className="heroMark"><Layers size={32} strokeWidth={1.7} /></span><h1>Dokumente befragen.</h1><p>Stellen Sie eine Frage zu Ihren Unterlagen.<br />{data.aiEnabled ? 'Evidence leitet eine Antwort aus Ihren Quellen ab und zeigt die Belege.' : 'Aktuell ist die Quellensuche aktiv. Für KI-Schlussfolgerungen muss ein Modell verbunden sein.'}</p></div> : <div className="conversation">{rows.map(r => <Result allowRepeat previous={data.history.find(h => h.id === r.result.previousId)} key={r.id} row={r} aiEnabled={data.aiEnabled} busy={busy} request={request} openDoc={openDoc} repeat={ask} />)}<div ref={end} /></div>}
- <div className="composerWrap"><label className="thresholdControl">Punkteschwelle für die nächste Anfrage<input type="number" min="0" max="100" step="1" aria-label="Punkteschwelle" disabled={busy} value={threshold ?? data.sourceThreshold ?? 70} onChange={e => setThreshold(e.target.value === '' ? '' : Number(e.target.value))} /> / 100</label><p className="thresholdHelp">Mögliche Gegenbelege bleiben auch unterhalb der Schwelle im Prüfkontext.</p><form className="composer" onSubmit={e => {
+ <div className="composerWrap"><Scoring threshold={threshold ?? data.sourceThreshold ?? 70} standard={data.sourceThreshold ?? 70} setThreshold={setThreshold} weights={weights} setWeights={setWeights} busy={busy}/><form className="composer" onSubmit={e => {
             e.preventDefault();
             ask(question);
           }}><textarea ref={input} aria-label="Frage" placeholder="Was möchten Sie wissen?" value={question} maxLength={2500} onChange={e => Q(e.target.value)} onKeyDown={e => {
@@ -391,35 +392,23 @@ export default function Workspace() {
             user: 'Konto anlegen',
             check: 'Fachprüfung abschließen'
           }[modal]}</h2>{error && <p className="error" role="alert">{error}</p>}
- {modal === 'source' ? <pre>{form.text}</pre> : <form onSubmit={submit}>
+ {modal === 'source' ? <Originals doc={form} api={api}/> : <form onSubmit={submit}>
  {modal === 'user' && <><label>Name<input autoFocus required onChange={e => field('name', e.target.value)} /></label><label>E-Mail<input type="email" required onChange={e => field('email', e.target.value)} /></label><label>Passwort (mindestens 12 Zeichen)<input required type="password" minLength={12} autoComplete="new-password" onChange={e => field('password', e.target.value)} /></label><label>Rolle<select value={form.role} onChange={e => field('role', e.target.value)}>{Object.entries(roleLabel).map(([val, txt]) => <option key={val} value={val}>{txt}</option>)}</select></label></>}
  {modal === 'check' && <><label>Aussage bearbeiten (optional)<select value={form.claim || ''} onChange={e => field('claim', e.target.value)}><option value="">Gesamtes Ergebnis prüfen</option>{(() => {
  const r = data.queue.find(row => row.id === form.id)?.result;
  return (r?.claims?.length ? r.claims.map(c => c.text) : [r?.text,r?.reasoning,r?.gap]).filter(Boolean).map((v,i)=><option key={i} value={v}>{v}</option>);
  })()}</select></label>{form.claim && <><label>Korrigierte Fassung<textarea required maxLength={2000} onChange={e => field('replacement', e.target.value)} /></label><label>Beleg für die Änderung<select required onChange={e => field('source',e.target.value)}><option value="">Fundstelle wählen</option>{data.queue.find(row=>row.id===form.id)?.result.audit?.sources.map(s=><option key={s.id} value={s.id}>{s.name} · Abs. {s.position} · {s.quote.slice(0,80)}</option>)}</select></label></>}<label>Entscheidung<select value={form.decision} onChange={e => field('decision', e.target.value)}><option value="confirmed">Fachlich bestätigen</option><option value="rejected">Ablehnen</option></select></label><label>Begründung<textarea required rows={4} onChange={e => field('note', e.target.value)} /></label></>}
  {modal === 'classify' && <p>Neue Einstufung: <b>{form.importance === 'important' ? 'Wichtig – Fachprüfung erforderlich' : 'Normal'}</b>. Bereits erstellte Antworten aus ehemals wichtigen Quellen behalten ihre Prüfpflicht.</p>}
- {modal === 'upload' && <><label className="fileBox"><Upload size={18} /> {reading ? 'Datei wird gelesen …' : 'PDF, TXT, MD oder CSV auswählen'}<input type="file" accept=".pdf,.txt,.md,.csv" onChange={async e => {
-                const file = e.target.files?.[0];
-                if (!file) return;
-                R(true);
-                try {
-                  const t = await extractFile(file);
-                  if (t.length > 200000) throw Error('Maximal 200.000 Zeichen.');
-                  F(f => ({
-                    ...f,
-                    text: t,
-                    name: file.name
-                  }));
-                  E('');
-                } catch (err) {
-                  E(err.message);
-                } finally {
-                  R(false);
-                }
-              }} /></label><label>Titel<input autoFocus required maxLength={150} value={form.name || ''} onChange={e => field('name', e.target.value)} /></label><label>Dokumenttext<textarea required rows="5" maxLength={200000} value={form.text || ''} onChange={e => field('text', e.target.value)} /></label><label>Wichtigkeit<select value={form.importance || 'normal'} onChange={e => field('importance', e.target.value)}><option value="normal">Normal</option><option value="important">Wichtig · fachliche Prüfung erforderlich</option></select></label><label>Herausgeber (optional)<input maxLength={160} onChange={e => field('issuer', e.target.value)} /></label><label className="check"><input type="checkbox" onChange={e => field('reviewed', e.target.checked)} /> Prüfstatus ist dokumentiert</label><label className="check"><input type="checkbox" onChange={e => field('team', e.target.checked)} /> Für alle Nutzer dieser Website freigeben</label></>}
+ {modal === 'upload' && <><div className="importActions"><label className="fileBox"><Upload size={18}/> Datei auswählen<input disabled={!!reading||busy} type="file" accept={formats} multiple onChange={e=>importFiles(Array.from(e.target.files))}/></label>
+ <label className="fileBox">Papier scannen<input disabled={!!reading||busy} type="file" capture="environment" accept="image/*" onChange={e=>importFiles([...(form.ocr && !form.cloud && form.localFiles?.every(f=>f.type.startsWith('image/'))?form.localFiles:[]),...e.target.files])}/></label></div>
+ <p className="muted">PDF, Fotos, Word, Excel oder Text · bis 15 MB pro Datei, DOC bis 3 MB. Für mehrere Scan-Seiten Bilder in Seitenreihenfolge auswählen.</p>
+ <details><summary>Cloudquelle synchronisieren</summary>{data.cloudConfig?<><label>OneDrive-Dateipfad oder SharePoint-Pfad (drives/…/items/…)<input value={form.path||''} onChange={e=>field('path',e.target.value)}/></label><button className="textBtn" type="button" disabled={!!reading||busy||!form.path?.trim()} onClick={syncCloud}>Mit Microsoft verbinden und Version laden</button></>:<p>Für diesen Arbeitsbereich ist noch kein Microsoft-Mandant verbunden.</p>}</details>
+ {reading && <p role="status">{reading}</p>}
+ {form.ocr && <label className="check"><input required type="checkbox" checked={!!form.checked} onChange={e=>field('checked',e.target.checked)}/> Scantext, Beträge und Datumsangaben mit dem Original abgeglichen</label>}
+ <label>Titel<input autoFocus required maxLength={150} value={form.name || ''} onChange={e => field('name', e.target.value)} /></label><label>Dokumenttext<textarea required rows="5" maxLength={200000} value={form.text || ''} onChange={e => field('text', e.target.value)} /></label><label>Wichtigkeit<select value={form.importance || 'normal'} onChange={e => field('importance', e.target.value)}><option value="normal">Normal</option><option value="important">Wichtig · fachliche Prüfung erforderlich</option></select></label><label>Herausgeber (optional)<input maxLength={160} onChange={e => field('issuer', e.target.value)} /></label><label className="check"><input type="checkbox" onChange={e => field('reviewed', e.target.checked)} /> Prüfstatus ist dokumentiert</label><label className="check"><input type="checkbox" disabled={!!form.cloud} checked={!!form.team} onChange={e => field('team', e.target.checked)} /> Für alle Nutzer dieser Website freigeben</label></>}
  {modal === 'request' && <><label>E-Mail der zuständigen Person<input type="email" autoFocus required value={form.recipient} onChange={e => field('recipient', e.target.value)} /></label><label>Welchen Nachweis benötigen Sie und wofür?<textarea required rows="4" value={form.purpose} onChange={e => field('purpose', e.target.value)} /></label><p className="muted">Die Anfrage erscheint im Freigabepostfach dieser Person, sobald sie Zugang zu dieser Website hat.</p></>}
  {modal === 'review' && <><label>Eigenes Dokument<select required value={form.doc} onChange={e => field('doc', e.target.value)}><option value="">Dokument auswählen</option>{data.docs.filter(d => d.mine).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}</select></label><label>Wörtlicher Auszug<textarea rows="4" value={form.excerpt} onChange={e => field('excerpt', e.target.value)} placeholder="Leer lassen, um das gesamte Dokument freizugeben." /></label><label>Dauer<select value={form.days} onChange={e => field('days', Number(e.target.value))}><option value={1}>1 Tag</option><option value={7}>7 Tage</option></select></label></>}
- <button className="primary" disabled={busy || reading || auth || !loaded}>{busy ? 'Wird gespeichert …' : {
+ <button className="primary" disabled={busy || !!reading || auth || !loaded}>{busy ? 'Wird gespeichert …' : {
               upload: 'Dokument speichern',
               review: 'Befristet freigeben',
               request: 'Anfrage senden',

@@ -31,3 +31,13 @@
 .reviewTools summary{cursor:pointer}
 .reviewTools button{justify-self:start}
 @media(max-width:600px){.brand img{width:105px;max-width:105px}}
+
+.scoreSettings{background:#fff;border:1px solid #d6deea;border-radius:12px;color:#182a48;margin:0 0 10px}
+.scoreSettings summary{display:flex;align-items:center;gap:10px;padding:10px 16px;font-weight:600;cursor:pointer}
+.scoreSettings summary strong{margin-left:auto;border-radius:20px;padding:4px 11px;background:#fff1e5;color:#864100}
+.scoreSettings fieldset{border:0;border-top:1px solid #d6deea;margin:0;padding:12px 16px;max-height:40vh;overflow:auto}
+.scoreSettings label,.scoreSettings footer{display:flex;align-items:center;gap:8px;margin:6px 0}.scoreSettings small{margin-left:auto;color:#526078}
+.scoreSettings input[type=number]{width:64px;padding:5px;border:1px solid #aeb9ca;border-radius:6px}
+.scoreSettings input[type=range]{width:32%;accent-color:#de5900}.scoreSettings p{font-size:.85rem}.scoreSettings footer{justify-content:space-between}
+.brand img{width:174px;max-width:174px}.importActions{display:flex;flex-wrap:wrap;gap:8px}.importActions label{flex:1}
+@media(max-width:600px){.brand img{width:122px;max-width:122px}}

@@ -1,1 +1,11 @@
-{"framework":null,"installCommand":"node --version","buildCommand":"npm run build","outputDirectory":"public","functions":{"api/workspace.js":{"maxDuration":120}}}
+{
+  "framework": null,
+  "installCommand": "npm ci --include=dev",
+  "buildCommand": "npm run build",
+  "outputDirectory": "public",
+  "functions": {
+    "api/workspace.js": {
+      "maxDuration": 120
+    }
+  }
+}

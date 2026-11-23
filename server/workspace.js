@@ -1,3 +1,5 @@
+import {stagePart,registerVersion} from './originals.js';
+import {cloudConfig,currentCloud,checkedCloud} from './cloud.js';
 import { database } from './database.js';
 import { uid, hash, fail, clean, roles, canUpload, canReview, emailOf, passwordHash, login, person, cookieToken, newSession, sessionCookie } from './auth.js';
 import { answer, modelConfigured, sourceThreshold } from './evaluate.js';
@@ -14,7 +16,7 @@ function json(payload, status = 200, cookie) {
     headers: h
   });
 }
-async function documents(db, u) {
+async function documents(db, u, token) {
   const full = await db.all("SELECT * FROM documents WHERE owner=? OR scope='team' ORDER BY created DESC", u.id);
   const granted = await db.all("SELECT d.*,r.id AS grantId,r.excerpt FROM requests r JOIN documents d ON d.id=r.doc WHERE r.requester=? AND r.status='approved' AND r.expires>?", u.id, Date.now());
   for (const d of granted) {
@@ -26,7 +28,12 @@ async function documents(db, u) {
       body: d.excerpt || d.body
     });
   }
-  return full;
+  const links = await db.all('SELECT doc,cloud FROM source_versions WHERE cloud IS NOT NULL');
+  const accessible = await Promise.all(full.map(async d => {
+    const link=links.find(l=>l.doc===(d.sourceId||d.id));
+    return !link || (d.owner===u.id && await currentCloud(JSON.parse(link.cloud),token));
+  }));
+  return full.filter((_,i)=>accessible[i]);
 }
 function provenance(result, docs) {
   return [...new Set(result.dependencies)].map(key => {
@@ -36,6 +43,7 @@ function provenance(result, docs) {
       key,
       source: d.sourceId || d.id,
       scopeHash: hash(d.body),
+      version: d.sourceId || d.id,
       inContext: (result.contextDependencies || result.dependencies).includes(key),
       important: (result.contextDependencies || result.dependencies).includes(key) && d.importance === 'important'
     };
@@ -156,7 +164,16 @@ async function handle(req) {
       ok: true
     });
   }
-  const docs = await documents(db, u);
+  const token = req.headers.get('x-evidence-microsoft');
+  if (b.action==='stage' || b.action==='legacyWord') {
+    if (!canUpload(u)) fail('Dokumentverantwortliche Rolle erforderlich.',403);
+    if (b.action==='stage') { await stagePart(db,u,b); return json({ok:true}); }
+    const WordExtractor=(await import('word-extractor')).default;
+    if(typeof b.bytes!=='string'||b.bytes.length>4000000)fail('DOC maximal 3 MB.');
+    try { return json({text:(await new WordExtractor().extract(Buffer.from(b.bytes,'base64'))).getBody().slice(0,200001)}); }
+    catch { fail('DOC nicht lesbar. Eine freigegebene PDF-Kopie importieren.'); }
+  }
+  const docs = await documents(db, u, token);
   if (req.method === 'GET') {
     const decisions = await db.all('SELECT * FROM reviews ORDER BY created DESC');
     const history = (await db.all('SELECT * FROM messages WHERE user=? ORDER BY created DESC LIMIT 240', u.id)).map(row => applyPolicy(row, docs, decisions) || withheld(row));
@@ -164,7 +181,7 @@ async function handle(req) {
     const requests = await db.all('SELECT id,requester,sender,recipient,purpose,status,expires,created FROM requests WHERE requester=? OR recipient=? ORDER BY created DESC', u.id, u.email);
     const users = u.role === 'admin' ? await db.all('SELECT name,email,role FROM users ORDER BY name') : [];
     return json({
-      auth: true,
+      auth: true, cloudConfig: cloudConfig(),
       aiEnabled: modelConfigured(process.env),
       sourceThreshold: sourceThreshold(process.env),
       me: u,
@@ -186,10 +203,20 @@ async function handle(req) {
       live: modelConfigured(process.env)
     });
   }
-  if (b.action === 'read') {
+  if (b.action === 'read' || b.action === 'original') {
     const d = docs.find(d => d.id === b.doc);
     if (!d) fail('Keine Leseberechtigung.', 403);
+    const version=!d.excerpt && await db.one('SELECT manifest FROM source_versions WHERE doc=?',d.sourceId||d.id);
+    const files=version?JSON.parse(version.manifest):[];
+    if(b.action==='original'){
+      const f=files.find(f=>f.hash===b.hash);
+      if(!f||!Number.isInteger(b.part)||b.part<0||b.part>=f.count)fail('Keine Leseberechtigung.',403);
+      const part=await db.one('SELECT bytes FROM original_parts WHERE owner=? AND hash=? AND part=?',d.owner,f.hash,b.part);
+      if(!part) fail('Original unvollständig.',409);
+      return json(part);
+    }
     return json({
+      files,key:d.id,version:d.sourceId||d.id,created:d.created,author:(await db.one('SELECT name FROM users WHERE id=?',d.owner))?.name,
       name: d.name,
       text: d.body
     });
@@ -200,7 +227,12 @@ async function handle(req) {
       body = clean(b.text, 200001);
     if (!title || !body || body.length > 200000) fail('Titel und maximal 200.000 Zeichen Dokumenttext erforderlich.');
     if (!['normal', 'important'].includes(b.importance)) fail('Wichtigkeit auswählen.');
-    await db.run('INSERT INTO documents(id,owner,name,body,scope,issuer,reviewed,importance,created) VALUES(?,?,?,?,?,?,?,?,?)', [uid(), u.id, title, body, b.team ? 'team' : 'private', clean(b.issuer, 160), b.reviewed ? 1 : 0, b.importance, now]);
+    const cloud=b.cloud?await checkedCloud(b.cloud,token,b.files):null;
+    const doc=cloud?hash(JSON.stringify([u.id,cloud.drive,cloud.item,cloud.tag])):uid();
+    if(cloud && await db.one('SELECT id FROM documents WHERE id=?',doc))return json({ok:true});
+    if(cloud && (!b.files?.length || b.team))fail('Cloudquellen sind persönlich gebunden.');
+    if(b.files?.length) await registerVersion(db,u,doc,b.files,cloud);
+    await db.run('INSERT INTO documents(id,owner,name,body,scope,issuer,reviewed,importance,created) VALUES(?,?,?,?,?,?,?,?,?)', [doc, u.id, title, body, b.team ? 'team' : 'private', clean(b.issuer, 160), b.reviewed ? 1 : 0, b.importance, now]);
   } else if (b.action === 'classify') {
     if (!canUpload(u) || !['normal', 'important'].includes(b.importance)) fail('Keine Berechtigung.', 403);
     const updated = await db.run('UPDATE documents SET importance=?,revision=revision+1 WHERE id=? AND owner=? AND importance<>?', [b.importance, b.doc, u.id, b.importance]);
@@ -217,7 +249,7 @@ async function handle(req) {
       contextDependencies: h.result.contextDependencies
     }));
     const threshold = sourceThreshold(process.env, b.threshold);
-    const r = await answer(process.env, docs, question, history, { threshold });
+    const r = await answer(process.env, docs, question, history, { threshold, weights: b.weights });
     if (b.previousId) {
       const previous = await db.one('SELECT * FROM messages WHERE id=? AND user=? AND thread=?', b.previousId, u.id, thread);
       if (!previous || previous.question !== question || !applyPolicy(previous, docs, [])) fail('Frühere Prüfung nicht verfügbar.', 409);
@@ -226,7 +258,7 @@ async function handle(req) {
     r.provenance = provenance(r, docs);
     if (!applyPolicy({
       result: JSON.stringify(r)
-    }, await documents(db, u), [])) fail('Berechtigung wurde geändert.', 409);
+    }, await documents(db, u, token), [])) fail('Berechtigung wurde geändert.', 409);
     await db.run('INSERT INTO messages VALUES(?,?,?,?,?,?)', [uid(), u.id, thread, question, JSON.stringify(r), now]);
     return json({
       thread

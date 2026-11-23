@@ -47,8 +47,9 @@ export async function person(db, req) {
 export function sessionCookie(req, value, age) {
   return 'ev_session=' + value + '; Path=/; HttpOnly; SameSite=Strict; Max-Age=' + age + ((process.env.APP_ORIGIN || req.url).startsWith('https:') ? '; Secure' : '');
 }
-export async function newSession(db, u, req) {
+export async function newSession(db, u, req, verifiedFactor = null) {
   const token = randomBytes(32).toString('hex');
-  await db.run('INSERT INTO sessions VALUES (?,?,?)', [hash(token), u.id, Date.now() + 28800000]);
+  const inserted = await db.run('INSERT INTO sessions SELECT ?,?,? WHERE (SELECT id FROM factors WHERE uid=?) IS ?', [hash(token), u.id, Date.now() + 28800000, u.id, verifiedFactor]);
+  if (!inserted.changes) fail('Kontoschutz wurde geändert. Bitte erneut anmelden.', 409);
   return sessionCookie(req, token, 28800);
 }

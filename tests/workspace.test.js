@@ -363,3 +363,22 @@ test('Originaldatei ist bytegenau, getrennt vom Auszug und serverseitig geprüft
   assert.deepEqual((await send(reviewer,{action:'read',doc:grant})).value.files,[]);
   await send(reviewer,{action:'original',hash,part:0,doc:grant},403);
 });
+
+test('Kontoschutz verlangt die Bestätigung für jede sensible Operation',async()=>{
+  const {database}=await import('../server/database.js');
+  const {hash}=await import('../server/auth.js');
+  const db=await database();
+  const owner=await db.one('SELECT id FROM users WHERE role=?','admin');
+  const code='local-test-only';
+  await db.run('INSERT INTO factors VALUES(?,?,?,?,?)',[owner.id,'ZmFrZQ','ZmFrZQ',0,hash(code)]);
+  assert.equal((await send(admin)).value.auth,false);
+  const login={action:'login',email:'admin@example.invalid',password:pwd};
+  const challenge=(await send('',login,428)).value.options.challenge;
+  const account=(await send('',{...login,proof:{challenge,recovery:code}})).cookie;
+  for(const action of ['approve','deny','revoke','review','user','classify','upload']){
+    const payload={action,team:true};
+    assert((await send(account,payload,428)).value.options.challenge);
+  }
+  const next=(await send('',login,428)).value.options.challenge;
+  await send('',{...login,proof:{challenge:next,recovery:code}},403);
+});

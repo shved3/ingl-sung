@@ -20,6 +20,8 @@
   },
   "dependencies": {
     "@azure/msal-browser": "4.26.0",
+    "@simplewebauthn/browser": "13.2.2",
+    "@simplewebauthn/server": "13.2.2",
     "@tesseract.js-data/deu": "1.0.0",
     "mammoth": "1.10.0",
     "tesseract.js": "6.0.1",

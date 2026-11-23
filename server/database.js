@@ -1,3 +1,4 @@
+import {factorSchema} from './factor.js';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
@@ -92,7 +93,7 @@ async function open() {
       };
     };
   }
-  for (const sql of schema) await execute(sql);
+  for (const sql of [...schema,...factorSchema]) await execute(sql);
   await execute('CREATE TABLE IF NOT EXISTS evidence_storage_identity (slot INTEGER PRIMARY KEY CHECK(slot=1), identity TEXT NOT NULL, created INTEGER NOT NULL)');
   await execute('INSERT OR IGNORE INTO evidence_storage_identity(slot,identity,created) VALUES (1,?,?)', [randomUUID(), Date.now()]);
   console.info('[Evidence storage]', JSON.stringify({ ...storageDiagnostic,

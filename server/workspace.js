@@ -1,3 +1,4 @@
+import {factorFor,confirmAction,sensitive,beginEnrollment,enroll} from './factor.js';
 import {stagePart,registerVersion} from './originals.js';
 import {cloudConfig,currentCloud,checkedCloud} from './cloud.js';
 import { database } from './database.js';
@@ -151,9 +152,14 @@ async function handle(req) {
     }
     if (b.action === 'login') {
       const user = await login(db, b);
+      const factor=await factorFor(db,user);
+      if(factor){
+        const options=await confirmAction(db,user,req,b,factor);
+        if(options)return json({options},428);
+      }
       return json({
         ok: true
-      }, 200, await newSession(db, user, req));
+      }, 200, await newSession(db, user, req, factor?.id));
     }
     fail('Bitte anmelden.', 401);
   }
@@ -162,6 +168,17 @@ async function handle(req) {
     return json({
       ok: true
     }, 200, sessionCookie(req, '', 0));
+  }
+  const factor=await factorFor(db,u);
+  if(b.action==='factorBegin') await login(db,{email:u.email,password:b.password});
+  if(factor && sensitive(b)){
+    const options=await confirmAction(db,u,req,b,factor);
+    if(options)return json({options},428);
+  }
+  if(b.action==='factorBegin')return json({options:await beginEnrollment(db,u,req,factor)});
+  if(b.action==='factorFinish'){
+    const codes=await enroll(db,u,req,b,factor);
+    return json({codes},200,await newSession(db,u,req,b.response.id));
   }
   if (b.action === 'user') {
     if (u.role !== 'admin') fail('Nur die Administration kann Konten anlegen.', 403);
@@ -190,7 +207,7 @@ async function handle(req) {
     const requests = await db.all('SELECT id,requester,sender,recipient,purpose,status,expires,created FROM requests WHERE requester=? OR recipient=? ORDER BY created DESC', u.id, u.email);
     const users = u.role === 'admin' ? await db.all('SELECT name,email,role FROM users ORDER BY name') : [];
     return json({
-      auth: true, cloudConfig: cloudConfig(),
+      auth: true, factorEnabled:!!factor, cloudConfig: cloudConfig(),
       aiEnabled: modelConfigured(process.env),
       sourceThreshold: sourceThreshold(process.env),
       me: u,

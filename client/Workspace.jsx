@@ -1,3 +1,5 @@
+import {startAuthentication} from '@simplewebauthn/browser';
+import {AccountFactor} from './AccountFactor.jsx';
 import {Originals,stageFiles} from './Originals.jsx';
 import {formats,extractFiles,cloudFile} from './importFiles.js';
 let microsoftToken='';
@@ -31,6 +33,17 @@ async function api(body) {
     cache: 'no-store', headers:microsoftToken?{'x-evidence-microsoft':microsoftToken}:{}
   });
   const result = await r.json();
+  if(r.status===428 && result.options && body && !body.proof){
+    const challenge=result.options.challenge;
+    let proof;
+    try{proof={challenge,response:await startAuthentication({optionsJSON:result.options})};}
+    catch{
+      const recovery=window.prompt('Passkey nicht bestätigt. Einen einmaligen Wiederherstellungscode eingeben oder abbrechen.');
+      if(!recovery)throw Error('Bestätigung abgebrochen.');
+      proof={challenge,recovery};
+    }
+    return api({...body,proof});
+  }
   if (!r.ok) throw Object.assign(Error(result.error || 'Verbindung fehlgeschlagen.'), {
     status: r.status
   });
@@ -313,7 +326,7 @@ export default function Workspace() {
     F({});
     refresh();
   }} />;
-  return <div className="app"><header><button className="mobile icon" aria-label="Navigation" onClick={() => U(!menu)}><Menu /></button><Brand /><div className="topEnd"><span>TUHH · Hochschulprojekt</span><button onClick={() => run(async () => {
+  return <div className="app"><header><button className="mobile icon" aria-label="Navigation" onClick={() => U(!menu)}><Menu /></button><Brand /><div className="topEnd"><span>TUHH · Hochschulprojekt</span><button onClick={()=>pop('factor')}>Kontoschutz</button><button onClick={() => run(async () => {
           await api({
             action: 'logout'
           });
@@ -386,6 +399,7 @@ export default function Workspace() {
       if (e.target === e.currentTarget && !busy) M('');
     }}><section role="dialog" aria-modal="true" aria-labelledby="dialog-title" className="dialog"><button className="close icon" aria-label="Schließen" onClick={() => M('')}><X size={19} /></button><h2 id="dialog-title">{{
             upload: 'Dokument hinzufügen',
+            factor: 'Zwei-Faktor-Anmeldung',
             source: form.name,
             request: 'Nachweis anfragen',
             review: 'Nachweis freigeben',
@@ -393,7 +407,7 @@ export default function Workspace() {
             user: 'Konto anlegen',
             check: 'Fachprüfung abschließen'
           }[modal]}</h2>{error && <p className="error" role="alert">{error}</p>}
- {modal === 'source' ? <Originals doc={form} api={api}/> : <form onSubmit={submit}>
+ {modal === 'factor' ? <AccountFactor enabled={data.factorEnabled} api={api} refresh={refresh}/> : modal === 'source' ? <Originals doc={form} api={api}/> : <form onSubmit={submit}>
  {modal === 'user' && <><label>Name<input autoFocus required onChange={e => field('name', e.target.value)} /></label><label>E-Mail<input type="email" required onChange={e => field('email', e.target.value)} /></label><label>Passwort (mindestens 12 Zeichen)<input required type="password" minLength={12} autoComplete="new-password" onChange={e => field('password', e.target.value)} /></label><label>Rolle<select value={form.role} onChange={e => field('role', e.target.value)}>{Object.entries(roleLabel).map(([val, txt]) => <option key={val} value={val}>{txt}</option>)}</select></label></>}
  {modal === 'check' && <><label>Aussage bearbeiten (optional)<select value={form.claim || ''} onChange={e => field('claim', e.target.value)}><option value="">Gesamtes Ergebnis prüfen</option>{(() => {
  const r = data.queue.find(row => row.id === form.id)?.result;

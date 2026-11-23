@@ -348,7 +348,12 @@ export async function answer(env, docs, question, history = [], options = {}) {
       && ['widerspricht', 'stützt', 'unklar', 'nicht_relevant'].includes(c.urteil) && content(c.grund));
   if (counterValid) audit.counterChecks = counters.map(c => ({ id: c.id, urteil: c.urteil, grund: content(c.grund) }));
   if (judgment?.widerspruch === true || (counterValid && counters.some(c => c.urteil === 'widerspricht'))) {
-    step('ai2', 'blocked', 'Widerspruch festgestellt; Fazit zurückgehalten, fachliche Klärung erforderlich.');
+    step('ai2', 'blocked', 'KI 2 meldet einen Widerspruch. Fachliche Klärung erforderlich.');
+    if (groq && refs.length && reasoning) {
+      return finish({ ...result, missing: true, score: null, text: 'Strittiger Entwurf von KI 1 – fachliche Prüfung erforderlich.',
+        reasoning: [conclusion, reasoning].filter(Boolean).join('\n\n'),
+        gap: [result.gap, content(judgment.hinweis) || 'KI 2 meldet einen Widerspruch.'].filter(Boolean).join(' ') });
+    }
     return finish({ ...result, text: '', reasoning: '', missing: true,
       gap: content(judgment.hinweis) || 'KI 2 meldet einen Widerspruch zwischen Antwort und Quellen. Strittige Angaben fachlich klären.' });
   }

@@ -36,35 +36,68 @@ export function modelConfigured(env) {
   return Boolean(env.OLLAMA_MODEL?.trim() || env.OPENAI_API_KEY?.trim());
 }
 
+class ModelError extends Error {
+  constructor(code, message, status = null) {
+    super(message);
+    this.code = code;
+    this.httpStatus = status;
+  }
+}
+function providerError(status, payload) {
+  const code = payload?.error?.code, type = payload?.error?.type;
+  if (code === 'organization_usage_limit_exceeded') return new ModelError('usage_limit', 'Das API-Nutzungslimit der Organisation ist erreicht. Administration muss das Limit prüfen.', status);
+  if (code === 'insufficient_quota' || type === 'insufficient_quota') return new ModelError('quota', 'API-Guthaben oder Nutzungskontingent ausgeschöpft. Administration muss API-Abrechnung und Limits prüfen.', status);
+  if (status === 401) return new ModelError('authentication', 'Der KI-Dienst akzeptiert den API-Schlüssel nicht. Administration muss die Zugangsdaten prüfen.', status);
+  if (code === 'model_not_found' || status === 404) return new ModelError('model_access', 'Das konfigurierte Modell oder der Endpunkt ist nicht verfügbar. Modellname und Zugriffsrechte prüfen.', status);
+  if (status === 403) return new ModelError('permission', 'Der KI-Dienst verweigert den Zugriff. Projekt- und Modellberechtigungen prüfen.', status);
+  if (status === 429) return new ModelError('rate_limit', 'Der KI-Dienst begrenzt die Anfragen. Bitte später erneut versuchen.', status);
+  if (code === 'context_length_exceeded') return new ModelError('context_length', 'Der Quellenkontext überschreitet das Modelllimit. Frage oder Quellenauswahl eingrenzen.', status);
+  if (status === 400 || status === 422) return new ModelError('request', 'Der KI-Dienst lehnt das Anfrageformat ab. Modellkompatibilität und Anfrageparameter prüfen.', status);
+  return new ModelError('provider', 'Der KI-Dienst meldet einen Fehler. Bitte später erneut versuchen.', status);
+}
+function recordModelError(error, stage) {
+  const safe = error instanceof ModelError ? error : new ModelError('unknown', 'Die KI-Anfrage ist fehlgeschlagen. Bitte erneut versuchen.');
+  // Never log prompts, provider messages, documents, credentials or raw responses.
+  console.error('[Evidence KI]', JSON.stringify({ stage, code: safe.code, httpStatus: safe.httpStatus }));
+  return safe.message + ' [Code: ' + safe.code + (safe.httpStatus ? ', HTTP ' + safe.httpStatus : '') + ']';
+}
 async function model(env, system, data, review = false) {
   const localModel = env.OLLAMA_MODEL?.trim();
   const endpoint = localModel
-    ? (env.OLLAMA_URL || 'http://127.0.0.1:11434').replace(/\/+$/, '') + '/v1/chat/completions'
+    ? (env.OLLAMA_URL?.trim() || 'http://127.0.0.1:11434').replace(/\/+$/, '') + '/v1/chat/completions'
     : 'https://api.openai.com/v1/chat/completions';
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      ...(!localModel && { Authorization: 'Bearer ' + env.OPENAI_API_KEY }),
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      model: localModel ? (review && env.OLLAMA_MODEL_PRUEFER?.trim() || localModel) : (review && env.OPENAI_MODEL_PRUEFER || env.OPENAI_MODEL || 'gpt-4.1-mini'),
-      response_format: {
-        type: 'json_object'
+  const modelName = localModel
+    ? (review && env.OLLAMA_MODEL_PRUEFER?.trim() || localModel)
+    : (review && env.OPENAI_MODEL_PRUEFER?.trim() || env.OPENAI_MODEL?.trim() || 'gpt-4.1-mini');
+  let response;
+  try {
+    response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        ...(!localModel && { Authorization: 'Bearer ' + env.OPENAI_API_KEY.trim() }),
+        'Content-Type': 'application/json'
       },
-      messages: [{
-        role: 'system',
-        content: system
-      }, {
-        role: 'user',
-        content: JSON.stringify(data)
-      }]
-    }),
-    signal: AbortSignal.timeout(45000)
-  });
-  if (!response.ok) throw Error('Der KI-Dienst ist derzeit nicht erreichbar. Bitte Modell und API-Konfiguration prüfen.');
-  const raw = await response.json();
-  return JSON.parse(raw.choices[0].message.content);
+      body: JSON.stringify({ model: modelName, response_format: { type: 'json_object' },
+        messages: [{ role: 'system', content: system }, { role: 'user', content: JSON.stringify(data) }] }),
+      signal: AbortSignal.timeout(45000)
+    });
+  } catch (error) {
+    if (error?.name === 'TimeoutError' || error?.name === 'AbortError') throw new ModelError('timeout', 'Zeitlimit für die KI-Antwort überschritten. Bitte erneut versuchen.');
+    throw new ModelError('network', 'Verbindung zum KI-Dienst fehlgeschlagen. Administration muss die Erreichbarkeit prüfen.');
+  }
+  let raw;
+  try { raw = await response.json(); }
+  catch {
+    if (!response.ok) throw providerError(response.status, null);
+    throw new ModelError('invalid_response', 'Der KI-Dienst lieferte keine lesbare JSON-Antwort.');
+  }
+  if (!response.ok) throw providerError(response.status, raw);
+  const choice = raw?.choices?.[0];
+  if (choice?.message?.refusal || choice?.finish_reason === 'content_filter') throw new ModelError('refusal', 'Das Modell hat diese Anfrage abgelehnt. Frage und Quellen prüfen.');
+  if (choice?.finish_reason === 'length') throw new ModelError('truncated', 'Die Modellantwort wurde wegen des Ausgabelimits abgeschnitten. Frage eingrenzen.');
+  if (typeof choice?.message?.content !== 'string' || !choice.message.content.trim()) throw new ModelError('empty_response', 'Das Modell lieferte keinen Antworttext. Modellkonfiguration prüfen.');
+  try { return JSON.parse(choice.message.content); }
+  catch { throw new ModelError('invalid_json', 'Die Modellantwort entspricht nicht dem erwarteten JSON-Format. Erneut versuchen oder ein kompatibles Modell konfigurieren.'); }
 }
 
 export function sourceThreshold(env = {}, value) {
@@ -187,10 +220,11 @@ export async function answer(env, docs, question, history = [], options = {}) {
       'Belege jede wesentliche Tatsachenbehauptung durch ein wörtliches Zitat. Fehlt ein Nachweis oder widersprechen sich entscheidende Angaben, setze missing=true und benenne die offene Angabe in luecke.',
       'Bei Lücken nur belegbare Teilergebnisse; ohne Beleg bleiben fazit und begruendung leer. Keine Aussagen über gesperrte Dateien. Keine Fachfreigabe behaupten.'
     ].join(' '), input);
-  } catch {
-    step('ai1', 'failed', 'KI-Dienst nicht erreichbar oder Antwort nicht lesbar.');
+  } catch (error) {
+    const detail = recordModelError(error, 'ai1');
+    step('ai1', 'failed', detail);
     step('ai2', 'skipped', 'Keine prüfbare KI-Antwort.');
-    return finish({ ...empty, warning: 'KI 1 konnte keine Antwort erstellen. Konfiguration prüfen und erneut versuchen.' });
+    return finish({ ...empty, warning: 'KI 1 konnte keine Antwort erstellen. ' + detail });
   }
   const content = value => typeof value === 'string' ? value.trim().slice(0, 6000) : '';
   const refs = Array.isArray(draft?.refs) ? draft.refs.flatMap(r => {
@@ -219,9 +253,10 @@ export async function answer(env, docs, question, history = [], options = {}) {
       'Setze widerspruch=true bei materiellen Widersprüchen und benenne die strittige Angabe in hinweis. Keine menschliche Fachfreigabe behaupten.'
     ].join(' '), { ...input, fazit: conclusion, begruendung: reasoning, luecke: gap, belege: refs,
       pflichtpruefung: protectedPicks.map(p => p.id), kriterien: groups.flatMap(g => g[1]) }, true);
-  } catch {
-    step('ai2', 'failed', 'KI 2 nicht erreichbar oder Antwort nicht lesbar.');
-    return finish({ ...result, warning: 'Die zweite KI-Prüfung war nicht verfügbar. Die Schlussfolgerung ist ungeprüft.' });
+  } catch (error) {
+    const detail = recordModelError(error, 'ai2');
+    step('ai2', 'failed', detail);
+    return finish({ ...result, warning: 'Die zweite KI-Prüfung war nicht verfügbar. Die Schlussfolgerung ist ungeprüft. ' + detail });
   }
   const counters = Array.isArray(judgment?.gegenbelege) ? judgment.gegenbelege : [];
   const counterValid = counters.length === protectedPicks.length && new Set(counters.map(c => c?.id)).size === counters.length

@@ -50,12 +50,20 @@ function applyPolicy(row, docs, decisions) {
   const mark = important.length && (r.audit || r.refs.length > 0);
   const signature = mark ? hash(JSON.stringify(current.map((d, i) => [prov[i].source, d.revision, prov[i].important]))) : null;
   const decision = signature && decisions.find(x => x.message === row.id && x.signature === signature);
+  let correction;
+  if (decision?.note?.startsWith('{"format":"claim-review-v1",')) {
+    try {
+      const record = JSON.parse(decision.note);
+      if (record.claim && record.replacement && record.source) correction = record;
+    } catch { /* Legacy free-text review. */ }
+  }
   const review = mark ? {
     status: decision?.decision || 'pending',
     reason: 'Wichtige Quelle im Auswertungskontext',
     sources: [...new Set(important.map(p => current[prov.indexOf(p)].name))],
     by: decision?.name,
-    note: decision?.note,
+    note: correction?.note || decision?.note,
+    correction,
     signature
   } : null;
   // A reviewer may see the same source through ownership rather than the author's grant.
@@ -76,6 +84,7 @@ function applyPolicy(row, docs, decisions) {
       ...r,
       ...(audit && { audit }),
       refs,
+      newSources: r.provenance ? docs.filter(d => d.created > row.created && !prov.some(p => p.source === (d.sourceId || d.id))).map(d => d.name) : [],
       review
     }
   };
@@ -209,6 +218,11 @@ async function handle(req) {
     }));
     const threshold = sourceThreshold(process.env, b.threshold);
     const r = await answer(process.env, docs, question, history, { threshold });
+    if (b.previousId) {
+      const previous = await db.one('SELECT * FROM messages WHERE id=? AND user=? AND thread=?', b.previousId, u.id, thread);
+      if (!previous || previous.question !== question || !applyPolicy(previous, docs, [])) fail('Frühere Prüfung nicht verfügbar.', 409);
+      r.previousId = previous.id;
+    }
     r.provenance = provenance(r, docs);
     if (!applyPolicy({
       result: JSON.stringify(r)
@@ -226,7 +240,14 @@ async function handle(req) {
     if (!rev || rev.signature !== b.signature) fail('Quelle oder Berechtigung hat sich geändert.', 409);
     const note = clean(b.note, 2000);
     if (!note || !['confirmed', 'rejected'].includes(b.decision)) fail('Begründung und Entscheidung erforderlich.');
-    const inserted = await db.run('INSERT OR IGNORE INTO reviews VALUES(?,?,?,?,?,?,?,?)', [uid(), row.id, rev.signature, u.id, u.name, b.decision, note, now]);
+    let savedNote = note;
+    if (b.replacement) {
+      const claim = (current.result.claims?.length ? current.result.claims.map(c => c.text) : [current.result.text, current.result.reasoning, current.result.gap]).find(t => t && t === b.claim);
+      const source = current.result.audit?.sources.find(s => s.id === b.source);
+      if (!claim || !source || !clean(b.replacement, 2000)) fail('Aussage, Korrektur und Fundstelle erforderlich.');
+      savedNote = JSON.stringify({ format: 'claim-review-v1', claim, replacement: clean(b.replacement, 2000), source: source.name + ', Absatz ' + source.position, note });
+    } else if (note.startsWith('{"format":"claim-review-v1",')) fail('Ungültiges Notizformat.');
+    const inserted = await db.run('INSERT OR IGNORE INTO reviews VALUES(?,?,?,?,?,?,?,?)', [uid(), row.id, rev.signature, u.id, u.name, b.decision, savedNote, now]);
     if (!inserted.changes) fail('Bereits geprüft.', 409);
   } else if (b.action === 'request') {
     const recipient = emailOf(b.recipient),

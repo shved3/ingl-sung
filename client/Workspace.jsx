@@ -1,5 +1,6 @@
 'use client';
 
+import { ReviewTools } from './ReviewTools.jsx';
 import React, { useEffect, useRef, useState } from 'react';
 import { ArrowUp, ArrowRight, BookOpen, Check, ChevronDown, ChevronRight, FileText, FolderOpen, History, KeyRound, Layers, LockKeyhole, Menu, MessageSquare, Paperclip, Plus, Search, ShieldCheck, Upload, X } from 'lucide-react';
 const nav = [['Chat', MessageSquare], ['Dokumente', FolderOpen], ['Freigaben', KeyRound], ['Fachprüfung', ShieldCheck], ['Prüfverlauf', History], ['Konten', LockKeyhole]];
@@ -58,7 +59,7 @@ async function extractFile(f) {
   return await f.text();
 }
 function Brand() {
-  return <div className="brand"><img src="https://www.ing.de/binaries/content/gallery/ing-images/partnervertrieb/hilfe/diba_logo_2018_partner_3c_vers2.png" alt="ING" onError={e => {
+  return <div className="brand"><img src="/ing-logo.jpg" alt="ING" onError={e => {
       e.currentTarget.hidden = true;
       e.currentTarget.nextElementSibling.hidden = false;
     }} /><span hidden className="brandFallback">ING</span><i /><b>Evidence</b></div>;
@@ -118,7 +119,7 @@ function Result({
   request,
   repeat,
   busy,
-  aiEnabled
+  aiEnabled, previous, allowRepeat
 }) {
   const r = row.result;
   const generationFailed = r.mode === 'KI' && !r.text && r.audit?.steps?.some(s => s.id === 'ai1' && s.status === 'failed');
@@ -136,6 +137,7 @@ function Result({
  {r.refs.map((v, i) => <details className="quote" key={i}><summary><FileText size={15} />{v.name} <small>Abs. {v.position}</small><ChevronDown size={14} /></summary><blockquote>{v.quote}</blockquote><button className="textBtn" onClick={() => openDoc(v.doc)}>Quelle öffnen <ArrowRight size={14} /></button></details>)}
  {r.warning && <p className="warning">{r.warning}</p>}
  {r.score != null && <details className="rating"><summary><span className={'dot ' + (r.review?.status === 'pending' ? 'yellow' : r.review?.status === 'rejected' ? 'red' : r.score >= 70 ? 'green' : r.score >= 50 ? 'yellow' : 'red')} /><b>{r.score}/100</b> {r.mode === 'Quellensuche' ? 'Quellennachweis' : label(r.score)}<ChevronDown size={15} /></summary>{r.groups.map(g => <details key={g.name}><summary>{g.name}<ChevronDown size={14} /></summary>{g.items.map(c => <p key={c.label}><b>{c.label}</b> · {c.wert === null ? 'Entfällt' : c.wert + '/2'}<br />{c.grund}</p>)}</details>)}<small>Anteil der erreichten Punkte aus allen anwendbaren Kriterien.</small></details>}
+ <ReviewTools row={row} previous={previous} allowRepeat={allowRepeat} repeat={repeat} busy={busy} />
  <AuditTrail r={r} openDoc={openDoc} request={request} question={row.question} />
  {r.missing && <div className="need"><LockKeyhole size={17} /><span>Nachweis offen</span><button onClick={() => request(row.question)}>Nachweis anfragen</button><button disabled={busy} onClick={() => repeat(row.question)}>Erneut prüfen</button></div>}</div>;
 }
@@ -235,7 +237,7 @@ export default function Workspace() {
       B(false);
     }
   }
-  const ask = value => {
+  const ask = (value, previousId) => {
     if (!value.trim()) return;
     const selectedThreshold = threshold ?? data.sourceThreshold ?? 70;
     if (!Number.isInteger(selectedThreshold) || selectedThreshold < 0 || selectedThreshold > 100) {
@@ -245,7 +247,7 @@ export default function Workspace() {
     run(async () => {
       const result = await api({
         action: 'ask',
-        question: value,
+        question: value, previousId,
         threshold: threshold ?? data.sourceThreshold ?? 70,
         thread
       });
@@ -284,7 +286,7 @@ export default function Workspace() {
       if (modal === 'classify' || modal === 'user' || modal === 'check') {
         await api({
           action: modal === 'check' ? 'review' : modal,
-          ...form
+          ...form, ...(modal === 'check' && !form.claim && {replacement: ''})
         });
       }
       if (modal === 'request') {
@@ -328,7 +330,7 @@ export default function Workspace() {
  <main><div className="crumb">Arbeitsbereich <ChevronRight size={13} /><b>{view}</b></div>
  {error && !modal && <p role="alert" className="error">{error} <button onClick={() => E('')}>Schließen</button></p>}
  {view === 'Chat' && <div className={'chatPane ' + (!rows.length ? 'empty' : '')}>
- {!rows.length ? <div className="welcome"><span className="heroMark"><Layers size={32} strokeWidth={1.7} /></span><h1>Dokumente befragen.</h1><p>Stellen Sie eine Frage zu Ihren Unterlagen.<br />{data.aiEnabled ? 'Evidence leitet eine Antwort aus Ihren Quellen ab und zeigt die Belege.' : 'Aktuell ist die Quellensuche aktiv. Für KI-Schlussfolgerungen muss ein Modell verbunden sein.'}</p></div> : <div className="conversation">{rows.map(r => <Result key={r.id} row={r} aiEnabled={data.aiEnabled} busy={busy} request={request} openDoc={openDoc} repeat={ask} />)}<div ref={end} /></div>}
+ {!rows.length ? <div className="welcome"><span className="heroMark"><Layers size={32} strokeWidth={1.7} /></span><h1>Dokumente befragen.</h1><p>Stellen Sie eine Frage zu Ihren Unterlagen.<br />{data.aiEnabled ? 'Evidence leitet eine Antwort aus Ihren Quellen ab und zeigt die Belege.' : 'Aktuell ist die Quellensuche aktiv. Für KI-Schlussfolgerungen muss ein Modell verbunden sein.'}</p></div> : <div className="conversation">{rows.map(r => <Result allowRepeat previous={data.history.find(h => h.id === r.result.previousId)} key={r.id} row={r} aiEnabled={data.aiEnabled} busy={busy} request={request} openDoc={openDoc} repeat={ask} />)}<div ref={end} /></div>}
  <div className="composerWrap"><label className="thresholdControl">Punkteschwelle für die nächste Anfrage<input type="number" min="0" max="100" step="1" aria-label="Punkteschwelle" disabled={busy} value={threshold ?? data.sourceThreshold ?? 70} onChange={e => setThreshold(e.target.value === '' ? '' : Number(e.target.value))} /> / 100</label><p className="thresholdHelp">Mögliche Gegenbelege bleiben auch unterhalb der Schwelle im Prüfkontext.</p><form className="composer" onSubmit={e => {
             e.preventDefault();
             ask(question);
@@ -391,7 +393,10 @@ export default function Workspace() {
           }[modal]}</h2>{error && <p className="error" role="alert">{error}</p>}
  {modal === 'source' ? <pre>{form.text}</pre> : <form onSubmit={submit}>
  {modal === 'user' && <><label>Name<input autoFocus required onChange={e => field('name', e.target.value)} /></label><label>E-Mail<input type="email" required onChange={e => field('email', e.target.value)} /></label><label>Passwort (mindestens 12 Zeichen)<input required type="password" minLength={12} autoComplete="new-password" onChange={e => field('password', e.target.value)} /></label><label>Rolle<select value={form.role} onChange={e => field('role', e.target.value)}>{Object.entries(roleLabel).map(([val, txt]) => <option key={val} value={val}>{txt}</option>)}</select></label></>}
- {modal === 'check' && <><label>Entscheidung<select value={form.decision} onChange={e => field('decision', e.target.value)}><option value="confirmed">Fachlich bestätigen</option><option value="rejected">Ablehnen</option></select></label><label>Begründung<textarea required rows={4} onChange={e => field('note', e.target.value)} /></label></>}
+ {modal === 'check' && <><label>Aussage bearbeiten (optional)<select value={form.claim || ''} onChange={e => field('claim', e.target.value)}><option value="">Gesamtes Ergebnis prüfen</option>{(() => {
+ const r = data.queue.find(row => row.id === form.id)?.result;
+ return (r?.claims?.length ? r.claims.map(c => c.text) : [r?.text,r?.reasoning,r?.gap]).filter(Boolean).map((v,i)=><option key={i} value={v}>{v}</option>);
+ })()}</select></label>{form.claim && <><label>Korrigierte Fassung<textarea required maxLength={2000} onChange={e => field('replacement', e.target.value)} /></label><label>Beleg für die Änderung<select required onChange={e => field('source',e.target.value)}><option value="">Fundstelle wählen</option>{data.queue.find(row=>row.id===form.id)?.result.audit?.sources.map(s=><option key={s.id} value={s.id}>{s.name} · Abs. {s.position} · {s.quote.slice(0,80)}</option>)}</select></label></>}<label>Entscheidung<select value={form.decision} onChange={e => field('decision', e.target.value)}><option value="confirmed">Fachlich bestätigen</option><option value="rejected">Ablehnen</option></select></label><label>Begründung<textarea required rows={4} onChange={e => field('note', e.target.value)} /></label></>}
  {modal === 'classify' && <p>Neue Einstufung: <b>{form.importance === 'important' ? 'Wichtig – Fachprüfung erforderlich' : 'Normal'}</b>. Bereits erstellte Antworten aus ehemals wichtigen Quellen behalten ihre Prüfpflicht.</p>}
  {modal === 'upload' && <><label className="fileBox"><Upload size={18} /> {reading ? 'Datei wird gelesen …' : 'PDF, TXT, MD oder CSV auswählen'}<input type="file" accept=".pdf,.txt,.md,.csv" onChange={async e => {
                 const file = e.target.files?.[0];

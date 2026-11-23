@@ -23,3 +23,11 @@
 @media(max-width:600px){.auditTrail{padding:12px}.thresholdControl{justify-content:flex-start}.thresholdHelp{text-align:left}.auditState{display:block}.auditSource{padding:9px}}
 
 .primaryAnswer{font-size:clamp(20px,2.3vw,26px);line-height:1.45;color:var(--navy);overflow-wrap:anywhere;margin:10px 0 14px}.primaryAnswer strong{font-weight:750}.answerStatus{font-size:12px;color:var(--muted);margin:0 0 12px}
+
+.brand img{width:146px;height:auto;max-width:146px;display:block}
+.brand img[hidden]{display:none}
+.reviewTools{margin:18px 0;display:grid;gap:10px}
+.reviewTools details,.reviewTools aside{border:1px solid #ccd4df;border-radius:8px;padding:12px}
+.reviewTools summary{cursor:pointer}
+.reviewTools button{justify-self:start}
+@media(max-width:600px){.brand img{width:105px;max-width:105px}}

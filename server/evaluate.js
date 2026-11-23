@@ -63,6 +63,17 @@ function recordModelError(error, stage) {
   console.error('[Evidence KI]', JSON.stringify({ stage, code: safe.code, httpStatus: safe.httpStatus }));
   return safe.message + ' [Code: ' + safe.code + (safe.httpStatus ? ', HTTP ' + safe.httpStatus : '') + ']';
 }
+function groqReviewFormat() {
+  const string = { type: 'string' };
+  const object = properties => ({ type: 'object', properties, required: Object.keys(properties), additionalProperties: false });
+  const list = items => ({ type: 'array', items });
+  const schema = object({
+    widerspruch: { type: 'boolean' }, hinweis: string,
+    kriterien: list(object({ wert: { type: ['integer', 'null'], enum: [0, 1, 2, null] }, grund: string })),
+    gegenbelege: list(object({ id: string, urteil: { type: 'string', enum: ['widerspricht', 'stützt', 'unklar', 'nicht_relevant'] }, grund: string }))
+  });
+  return { type: 'json_schema', json_schema: { name: 'quellenpruefung', strict: true, schema } };
+}
 async function model(env, system, data, review = false) {
   const localModel = env.OLLAMA_MODEL?.trim();
   let endpoint = 'https://api.openai.com/v1/chat/completions';
@@ -85,7 +96,7 @@ async function model(env, system, data, review = false) {
         ...(apiKey && { Authorization: 'Bearer ' + apiKey }),
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ model: modelName, response_format: { type: 'json_object' },
+      body: JSON.stringify({ model: modelName, response_format: review && !localModel && env.GROQ_API_KEY?.trim() && modelName.startsWith('openai/gpt-oss-') ? groqReviewFormat() : { type: 'json_object' },
         messages: [{ role: 'system', content: system }, { role: 'user', content: JSON.stringify(data) }] }),
       signal: AbortSignal.timeout(45000)
     });

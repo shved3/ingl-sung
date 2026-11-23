@@ -36,7 +36,8 @@ async function api(body) {
   });
   return result;
 }
-function Brand() {
+function Brand({projectLogin = false}) {
+  if (projectLogin) return <div className="brand"><b>Evidence</b></div>;
   return <div className="brand"><img src="/ing-logo.jpg" alt="ING" onError={e => {
       e.currentTarget.hidden = true;
       e.currentTarget.nextElementSibling.hidden = false;
@@ -305,8 +306,8 @@ export default function Workspace() {
     });
   }
   const pending = data.requests.filter(r => r.status === 'open' && r.recipient === data.me?.email).length;
-  if (!loaded && !error) return <div className="login"><header><Brand /></header><main><p role="status">Arbeitsbereich wird geladen …</p></main></div>;
-  if (loaded && !auth && !data.me && error) return <div className="login"><header><Brand /></header><main><div className="loginBox"><h1>Arbeitsbereich nicht erreichbar</h1><p>{error}</p><button className="primary" onClick={refresh}>Erneut verbinden</button></div></main></div>;
+  if (!loaded && !error) return <div className="login"><header><Brand projectLogin /></header><main><p role="status">Arbeitsbereich wird geladen …</p></main></div>;
+  if (loaded && !auth && !data.me && error) return <div className="login"><header><Brand projectLogin /></header><main><div className="loginBox"><h1>Arbeitsbereich nicht erreichbar</h1><p>{error}</p><button className="primary" onClick={refresh}>Erneut verbinden</button></div></main></div>;
   if (auth) return <Login key={setup ? 'setup' : 'login'} setup={setup} success={() => {
     E('');
     F({});
@@ -441,7 +442,7 @@ function Login({
     ...old,
     [k]: v
   }));
-  return <div className="login"><header><Brand /><small>TUHH · Hochschulprojekt</small></header><main><div className="loginBox"><div className="heroMark"><LockKeyhole /></div><h1>{setup ? 'Arbeitsbereich einrichten' : 'Bei Evidence anmelden'}</h1><p>{setup ? 'Legen Sie das erste Administrationskonto an.' : 'Melden Sie sich mit Ihrem Firmenkonto für Evidence an.'}</p><form onSubmit={async e => {
+  return <div className="login"><header><Brand projectLogin /><small>TUHH · Hochschulprojekt</small></header><main><div className="loginBox"><div className="heroMark"><LockKeyhole /></div><h1>{setup ? 'Arbeitsbereich einrichten' : 'Evidence-Demo öffnen'}</h1><p>{setup ? 'Legen Sie das erste Administrationskonto an.' : 'Verwenden Sie das Testkonto, das Ihnen das Projektteam zugeteilt hat.'}</p><p>Studentischer Prototyp für eine ING-Fallstudie. Bitte ausschließlich Zugangsdaten für dieses Hochschulprojekt eingeben. ING-Banking- und Firmenpasswörter gehören nicht hierher.</p><form onSubmit={async e => {
           e.preventDefault();
           B(true);
           E('');
@@ -458,5 +459,5 @@ function Login({
           }
         }}>
  {setup && <><label>Setup-Code<input type="password" required onChange={e => field('token', e.target.value)} /></label><label>Name<input required onChange={e => field('name', e.target.value)} /></label></>}
- <label>E-Mail<input type="email" autoComplete="username" autoFocus={!setup} required onChange={e => field('email', e.target.value)} /></label><label>Passwort<input type="password" minLength={setup ? 12 : 1} autoComplete={setup ? 'new-password' : 'current-password'} required onChange={e => field('password', e.target.value)} /></label>{err && <p role="alert" className="error">{err}</p>}<button className="primary" disabled={busy}>{busy ? 'Bitte warten …' : setup ? 'Arbeitsbereich einrichten' : 'Anmelden'}<ArrowRight size={16} /></button></form></div></main></div>;
+ <label>E-Mail des Projektkontos<input type="email" autoComplete="username" autoFocus={!setup} required onChange={e => field('email', e.target.value)} /></label><label>Projektpasswort<input type="password" minLength={setup ? 12 : 1} autoComplete={setup ? 'new-password' : 'current-password'} required onChange={e => field('password', e.target.value)} /></label>{err && <p role="alert" className="error">{err}</p>}<button className="primary" disabled={busy}>{busy ? 'Bitte warten …' : setup ? 'Arbeitsbereich einrichten' : 'Anmelden'}<ArrowRight size={16} /></button></form></div></main></div>;
 }

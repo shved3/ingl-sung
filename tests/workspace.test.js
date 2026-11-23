@@ -13,7 +13,7 @@ before(async () => {
   temp = await mkdtemp(path.join(tmpdir(), 'evidence-test-'));
   process.env.DATA_DIR = temp;
   process.env.EVIDENCE_SETUP_TOKEN = secret;
-  for (const key of ['VERCEL', 'TURSO_DATABASE_URL', 'TURSO_AUTH_TOKEN', 'OPENAI_API_KEY', 'OLLAMA_MODEL', 'APP_ORIGIN']) delete process.env[key];
+  for (const key of ['VERCEL', 'EVIDENCE_DATABASE_URL', 'EVIDENCE_DATABASE_AUTH_TOKEN', 'TURSO_DATABASE_URL', 'TURSO_AUTH_TOKEN', 'OPENAI_API_KEY', 'OLLAMA_MODEL', 'APP_ORIGIN']) delete process.env[key];
 });
 after(async () => rm(temp, {
   recursive: true,

@@ -94,6 +94,7 @@ export async function importDocuments(api, items, onProgress = () => {}, shouldS
 }
 
 if (typeof document !== 'undefined') {
+  const {fileDescription} = await import('/import/documentFileName.mjs');
   const pack = JSON.parse(document.getElementById('testdata').textContent);
   const byId = id => document.getElementById(id);
   const allowedOrigin = location.protocol === 'https:' || (location.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(location.hostname));
@@ -125,7 +126,7 @@ if (typeof document !== 'undefined') {
     const items = selected();
     for (const d of items) {
       const tr = append(byId('rows'), 'tr', '');
-      for (const value of [d.name, d.issuer || 'Fehlt (absichtlich)', d.reviewed ? 'Dokumentiert' : 'Nicht dokumentiert', d.importance === 'important' ? 'Wichtig · Fachprüfung' : 'Normal', d.team ? 'Alle Nutzer der Website' : 'Privat']) append(tr, 'td', value);
+      for (const value of [fileDescription(d).fileName, d.issuer || 'Fehlt (absichtlich)', d.reviewed ? 'Dokumentiert' : 'Nicht dokumentiert', d.importance === 'important' ? 'Wichtig · Fachprüfung' : 'Normal', d.team ? 'Alle Nutzer der Website' : 'Privat']) append(tr, 'td', value);
       const cell = append(tr, 'td', statuses.get(d.name) || 'Bereit'); cell.dataset.name = d.name;
     }
     byId('facts').replaceChildren();

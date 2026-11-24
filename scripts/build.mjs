@@ -2,6 +2,7 @@ import {mkdir,copyFile} from 'node:fs/promises';
 import {build} from 'esbuild';
 const out='public/import';
 await mkdir(out,{recursive:true});
+await copyFile('shared/documentFileName.js',out+'/documentFileName.mjs');
 for(const [source,name] of [
   ['tesseract.js/dist/tesseract.esm.min.js','ocr.mjs'],
   ['tesseract.js/dist/worker.min.js','worker.min.js'],

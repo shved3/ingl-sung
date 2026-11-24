@@ -26,7 +26,9 @@
     "@simplewebauthn/browser": "13.2.2",
     "@simplewebauthn/server": "13.2.2",
     "@tesseract.js-data/deu": "1.0.0",
+    "dejavu-fonts-ttf": "2.37.3",
     "mammoth": "1.10.0",
+    "pdfkit": "0.21.0",
     "tesseract.js": "6.0.1",
     "word-extractor": "1.0.4",
     "xlsx": "0.18.5"

@@ -33,3 +33,16 @@ export async function registerVersion(db,u,doc,files,cloud) {
   }
   await db.run('INSERT INTO source_versions VALUES(?,?,?,?)',[doc,u.id,JSON.stringify(manifest),cloud?JSON.stringify(cloud):null]);
 }
+
+// Publish a complete generated file in one manifest insert, also for simultaneous first reads.
+export async function saveRenderedFile(db, doc, bytes, key = doc.id) {
+  const hash = createHash('sha256').update(bytes).digest('hex');
+  const count = Math.ceil(bytes.length / chunkSize);
+  for (let i = 0; i < count; i++) {
+    const part = bytes.subarray(i * chunkSize,(i + 1) * chunkSize).toString('base64');
+    await db.run('INSERT OR IGNORE INTO original_parts VALUES(?,?,?,?,?)',[doc.owner,hash,i,part,Date.now()]);
+  }
+  const manifest = [{name:doc.fileName,hash,size:bytes.length,count,generated:true}];
+  await db.run('INSERT OR IGNORE INTO source_versions VALUES(?,?,?,NULL)',[key,doc.owner,JSON.stringify(manifest)]);
+  return JSON.parse((await db.one('SELECT manifest FROM source_versions WHERE doc=?',key)).manifest);
+}

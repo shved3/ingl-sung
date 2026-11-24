@@ -6,7 +6,7 @@
   "functions": {
     "api/workspace.js": {
       "maxDuration": 120,
-      "includeFiles": "server/published/report.json"
+      "includeFiles": "{server/published/report.json,node_modules/dejavu-fonts-ttf/ttf/DejaVuSans.ttf,node_modules/dejavu-fonts-ttf/ttf/DejaVuSans-Bold.ttf}"
     }
   }
 }

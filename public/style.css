@@ -129,3 +129,13 @@
   .brand img { width: 96px; max-width: 100%; }
 }
 .listRow > div { min-width: 0; overflow-wrap: anywhere; }
+
+.dialog.sourceDialog { width: min(920px, 100%); }
+.sourceToolbar, .sourceToolbar nav { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 14px; }
+.sourceToolbar { justify-content: space-between; margin: 12px 0; }
+.sourceToolbar button { min-height: 40px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px; }
+.pdfCanvas { width: 100%; background: #f3f4f7; border: 1px solid var(--line); }
+.pdfCanvas canvas, .sourceImage { display: block; width: 100%; height: auto; }
+.sourceDownload { display: inline-block; margin-block: 12px; overflow-wrap: anywhere; }
+.sourceScope { display: flex; align-items: center; gap: 8px; margin: 8px 0; font-size: .9rem; }
+.sourceMeta { color: var(--muted); }

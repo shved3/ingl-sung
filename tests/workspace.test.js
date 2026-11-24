@@ -106,7 +106,11 @@ test('Einrichtung, Konten, Upload und Einstufung nur mit passenden Rechten', asy
   const docs = (await send(manager)).value.docs;
   normal = docs.find(d => d.name === 'Bericht').id;
   privateId = docs.find(d => d.name === 'Vertraulich').id;
-  assert.equal((await send(employee)).value.docs.length, 1);
+  const accessible = (await send(employee)).value.docs;
+  assert.deepEqual(accessible.filter(d => !d.publishedUrl).map(d => d.id), [normal]);
+  const published = accessible.find(d => d.publishedUrl);
+  assert.equal(published.format, 'PDF');
+  assert.equal((await send(employee,{action:'read',doc:published.id})).value.pages, 17);
   await send(employee, {
     action: 'read',
     doc: privateId
@@ -335,6 +339,23 @@ test('Wichtige Quelle bleibt bei niedrigen Punkten und ohne KI-Zitat fachprüfpf
     assert(row.result.audit.sources.some(s => s.name === 'Abweichungsnachtrag' && s.decision === 'protected'));
     assert((await send(reviewer)).value.queue.some(r => r.id === row.id));
   } finally { delete process.env.OLLAMA_MODEL; }
+});
+test('Originalquellen zitieren das veröffentlichte PDF mit der zugehörigen physischen Seite', async () => {
+  const question = 'ING 3Q2025 net result';
+  await send(employee,{action:'ask',question,sourceScope:'originals'});
+  const row = (await send(employee)).value.history.find(h => h.question === question);
+  assert.ok(row.result.refs.length);
+  const {readFile} = await import('node:fs/promises');
+  const source = JSON.parse(await readFile(new URL('../server/published/report.json',import.meta.url)));
+  const {createHash} = await import('node:crypto');
+  const bytes = await readFile(new URL('../public' + source.publishedUrl,import.meta.url));
+  assert.equal('published:' + createHash('sha256').update(bytes).digest('hex'), source.id);
+  for (const ref of row.result.refs) {
+    assert.equal(ref.doc,source.id);
+    assert.ok(ref.page >= 1 && ref.page <= source.pages);
+    const text = source.body.split('[Seite ' + ref.page + ']')[1].split('[Seite ')[0];
+    assert.ok(text.includes(ref.quote));
+  }
 });
 test('Abmeldung beendet die Serversitzung', async () => {
   await send(employee, {

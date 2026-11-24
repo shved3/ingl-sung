@@ -1,3 +1,4 @@
+import {readFileSync} from 'node:fs';
 import {factorFor,confirmAction,sensitive,beginEnrollment,enroll} from './factor.js';
 import {stagePart,registerVersion} from './originals.js';
 import {cloudConfig,currentCloud,checkedCloud} from './cloud.js';
@@ -5,6 +6,11 @@ import { database } from './database.js';
 import { uid, hash, fail, clean, roles, canUpload, canReview, emailOf, passwordHash, login, person, cookieToken, newSession, sessionCookie } from './auth.js';
 import { answer, modelConfigured, sourceThreshold } from './evaluate.js';
 import { timingSafeEqual } from 'node:crypto';
+let publishedReport;
+function report() {
+  if (!publishedReport) publishedReport = JSON.parse(readFileSync(new URL('./published/report.json', import.meta.url), 'utf8'));
+  return publishedReport;
+}
 function json(payload, status = 200, cookie) {
   const h = {
     'Content-Type': 'application/json; charset=utf-8',
@@ -29,12 +35,16 @@ async function documents(db, u, token) {
       body: d.excerpt || d.body
     });
   }
-  const links = await db.all('SELECT doc,cloud FROM source_versions WHERE cloud IS NOT NULL');
+  const versions = new Map((await db.all('SELECT doc,cloud,manifest FROM source_versions')).map(row => [row.doc,row]));
   const accessible = await Promise.all(full.map(async d => {
-    const link=links.find(l=>l.doc===(d.sourceId||d.id));
-    return !link || (d.owner===u.id && await currentCloud(JSON.parse(link.cloud),token));
+    const version = versions.get(d.sourceId || d.id);
+    const filename = !d.excerpt && version && JSON.parse(version.manifest)[0]?.name;
+    d.format = d.excerpt ? 'Freigegebener Auszug' : filename ? (filename.match(/\.([a-z0-9]{1,8})$/i)?.[1]?.toUpperCase() || 'Datei') : 'Textquelle';
+    d.hasOriginal = Boolean(filename);
+    d.exercise = /fiktiv|übungsdaten/i.test(d.issuer || '') || /^(?:FIKTIVE ÜBUNGSDATEN|FIKTIVE TESTDATEN)/i.test(d.body.trimStart());
+    return !version?.cloud || (d.owner===u.id && await currentCloud(JSON.parse(version.cloud),token));
   }));
-  return full.filter((_,i)=>accessible[i]);
+  return full.filter((_,i)=>accessible[i]).concat(report());
 }
 function provenance(result, docs) {
   return [...new Set(result.dependencies)].map(key => {
@@ -232,6 +242,10 @@ async function handle(req) {
   if (b.action === 'read' || b.action === 'original') {
     const d = docs.find(d => d.id === b.doc);
     if (!d) fail('Keine Leseberechtigung.', 403);
+    if (d.publishedUrl) {
+      if (b.action !== 'read') fail('Diese Veröffentlichung ist direkt als PDF verfügbar.', 400);
+      return json({name:d.name, key:d.id, publishedUrl:d.publishedUrl, publisher:d.publisher, pages:d.pages});
+    }
     const version=!d.excerpt && await db.one('SELECT manifest FROM source_versions WHERE doc=?',d.sourceId||d.id);
     const files=version?JSON.parse(version.manifest):[];
     if(b.action==='original'){
@@ -244,7 +258,7 @@ async function handle(req) {
     return json({
       files,key:d.id,version:d.sourceId||d.id,created:d.created,author:(await db.one('SELECT name FROM users WHERE id=?',d.owner))?.name,
       name: d.name,
-      text: d.body
+      excerptOnly: Boolean(d.excerpt), exercise: d.exercise, text: d.body
     });
   }
   if (b.action === 'upload') {
@@ -275,7 +289,12 @@ async function handle(req) {
       contextDependencies: h.result.contextDependencies
     }));
     const threshold = sourceThreshold(process.env, b.threshold);
-    const r = await answer(process.env, docs, question, history, { threshold, weights: b.weights });
+    const originalsOnly = b.sourceScope === 'originals';
+    const sources = originalsOnly ? docs.filter(d => (d.hasOriginal || d.publishedUrl) && !d.exercise) :
+      b.sourceScope === 'all' ? docs : docs.filter(d => !d.publishedUrl);
+    const sourceIds = new Set(sources.map(d => d.id));
+    const relevantHistory = history.filter(h => (h.dependencies || []).every(id => sourceIds.has(id)));
+    const r = await answer(process.env, sources, question, relevantHistory, { threshold, weights: b.weights });
     if (b.previousId) {
       const previous = await db.one('SELECT * FROM messages WHERE id=? AND user=? AND thread=?', b.previousId, u.id, thread);
       if (!previous || previous.question !== question || !applyPolicy(previous, docs, [])) fail('Frühere Prüfung nicht verfügbar.', 409);

@@ -11,6 +11,7 @@ const types = {
   '.css': 'text/css',
   '.svg': 'image/svg+xml',
   '.txt': 'text/plain',
+  '.pdf': 'application/pdf',
   '.png': 'image/png'
 };
 const port = Number(process.env.PORT) || 3000;

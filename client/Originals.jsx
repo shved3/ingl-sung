@@ -74,6 +74,36 @@ function PdfReader({url, page: startPage = 1}) {
 
 const mediaTypes = {pdf:'application/pdf', jpg:'image/jpeg', jpeg:'image/jpeg', png:'image/png', webp:'image/webp', bmp:'image/bmp', txt:'text/plain', csv:'text/csv', md:'text/plain', doc:'application/msword', docx:'application/vnd.openxmlformats-officedocument.wordprocessingml.document', xls:'application/vnd.ms-excel', xlsx:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'};
 
+function SheetReader({blob, page, position, generated}) {
+  const [data,setData] = useState(null), [error,setError] = useState('');
+  const [selected,setSelected] = useState(Math.max(0,(page || 1) - 1));
+  const [offset,setOffset] = useState(0);
+  useEffect(() => {
+    let active = true;
+    async function open() {
+      const xlsx = await import(new URL('/import/xlsx.mjs',location.origin).href);
+      const book = xlsx.read(await blob.arrayBuffer(), {type:'array'});
+      if (!active) return;
+      const sheet = Math.min(selected,book.SheetNames.length - 1);
+      const rows = xlsx.utils.sheet_to_json(book.Sheets[book.SheetNames[sheet]],{header:1,raw:false,blankrows:true});
+      const target = generated && position ? rows.findIndex((row,i) => i >= 4 && Number(row[0]) === position) : -1;
+      setOffset(Math.max(0, Math.floor(target / 40)) * 40);
+      setData({names:book.SheetNames,sheet,rows,target});
+    }
+    open().catch(() => { if (active) setError('Die Vorschau ist nicht verfügbar. Die Arbeitsmappe kann heruntergeladen werden.'); });
+    return () => { active = false; };
+  }, [blob,selected,position,generated]);
+  if (error) return <p role="alert">{error}</p>;
+  if (!data) return <p role="status">Tabellenblatt wird geladen …</p>;
+  return <><div className="sourceToolbar">
+    <label>Tabellenblatt <select value={data.sheet} onChange={e => setSelected(Number(e.target.value))}>{data.names.map((name,i) => <option key={name} value={i}>{name}</option>)}</select></label>
+    {data.rows.length > 40 && <nav aria-label="Tabellenzeilen"><button disabled={!offset} onClick={() => setOffset(offset-40)}>Zurück</button>
+      <span>{offset+1}–{Math.min(offset+40,data.rows.length)} / {data.rows.length}</span><button disabled={offset+40>=data.rows.length} onClick={() => setOffset(offset+40)}>Weiter</button></nav>}
+  </div><div className="sourceSheet"><table aria-label={data.names[data.sheet]}><tbody>{data.rows.slice(offset,offset+40).map((row,i) =>
+    <tr key={offset+i} className={data.target===offset+i ? 'citedRow' : ''}><th scope="row">{offset+i+1}</th>{Array.from(row,(cell,j) => <td key={j}>{cell}</td>)}</tr>
+  )}</tbody></table></div></>;
+}
+
 export function Originals({doc,api}) {
   const files = doc.files || [];
   const [index,setIndex] = useState(Math.min(Math.max(0,(doc.page || 1) - 1),Math.max(0,files.length - 1)));
@@ -96,11 +126,12 @@ export function Originals({doc,api}) {
         blob = new Blob(parts,{type});
         if (await digest(await blob.arrayBuffer()) !== file.hash) throw Error('Die Prüfsumme des Originals stimmt nicht überein.');
       } else {
-        blob = new Blob([doc.text || ''],{type:'text/plain;charset=utf-8'});
+        if (!doc.excerptFile) throw Error('Die Quelldatei ist nicht verfügbar.');
+        blob = new Blob([Uint8Array.from(atob(doc.excerptFile), c => c.charCodeAt(0))],{type:'application/pdf'});
       }
       if (!active) return;
       url = URL.createObjectURL(blob);
-      setView({url,type:blob.type});
+      setView({url,type:blob.type,blob});
     }
     open().catch(e => { if (active) setError(e.message); });
     return () => { active = false; if (url) URL.revokeObjectURL(url); };
@@ -109,12 +140,13 @@ export function Originals({doc,api}) {
   const type = doc.publishedUrl ? 'application/pdf' : view?.type;
   return <>{files.length > 1 && <label>Originaldatei<select value={index} onChange={e => setIndex(Number(e.target.value))}>{files.map((f,i) => <option key={i} value={i}>{f.name}</option>)}</select></label>}
     {doc.publisher && <p className="sourceMeta">Herausgeber · <a href={doc.publisher} target="_blank" rel="noreferrer">ING Groep N.V.</a></p>}
-    {!file && !doc.publishedUrl && <p className="notice">{doc.excerptOnly ? 'Für dich ist dieser Textauszug freigegeben.' : doc.exercise ? 'Übungstext mit fiktiven Daten. Zu diesem Eintrag wurde keine Originaldatei hinterlegt.' : 'Dieser Eintrag wurde als Text ohne Originaldatei gespeichert.'}</p>}
+    {doc.excerptOnly && <p className="notice">Freigegebener Auszug</p>}
     {error && <p role="alert" className="error">{error}</p>}
     {!error && !url && <p role="status">Originaldatei wird geladen und geprüft …</p>}
     {url && <>{type === 'application/pdf' && <PdfReader key={url} url={url} page={doc.page || 1}/>}
+      {view && [mediaTypes.xls,mediaTypes.xlsx].includes(type) && <SheetReader blob={view.blob} page={doc.page} position={doc.position} generated={doc.generated}/>}
       {type?.startsWith('image/') && <img className="sourceImage" src={url} alt={file.name}/>}
-      <a className="sourceDownload" href={url} download={file?.name || (doc.publishedUrl ? doc.name : doc.name + '.txt')}>{file || doc.publishedUrl ? (file?.name || doc.name) + ' herunterladen' : 'Text als .txt herunterladen'}</a>
+      <a className="sourceDownload" href={url} download={file?.name || doc.name}>{file?.name || doc.name} herunterladen</a>
       {type?.startsWith('text/') && <pre>{doc.text}</pre>}</>}
   </>;
 }

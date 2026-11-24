@@ -381,10 +381,52 @@ test('Originaldatei ist bytegenau, getrennt vom Auszug und serverseitig geprüft
   const request=(await send(manager)).value.requests.find(r=>r.purpose==='Archivtest Auszug');
   await send(manager,{action:'approve',id:request.id,doc,excerpt:'180,00 Euro',days:1});
   const grant=(await send(reviewer)).value.docs.find(d=>d.name==='Archivtest').id;
-  assert.deepEqual((await send(reviewer,{action:'read',doc:grant})).value.files,[]);
+  const limited = (await send(reviewer,{action:'read',doc:grant})).value;
+  assert.deepEqual(limited.files,[]);
+  const {getDocumentProxy} = await import('unpdf');
+  const excerptPdf = await getDocumentProxy(new Uint8Array(Buffer.from(limited.excerptFile,'base64')));
+  const content = await (await excerptPdf.getPage(1)).getTextContent();
+  assert.ok(content.items.some(item => item.str === '180,00 Euro'));
+  assert.ok(!content.items.some(item => item.str?.includes('Rechnung 180,00 Euro')));
   await send(reviewer,{action:'original',hash,part:0,doc:grant},403);
 });
 
+test('Bestehende Übungsunterlagen liefern unter derselben ID PDF-Seiten und Excel-Zellen', async () => {
+  const {database} = await import('../server/database.js');
+  const {getDocumentProxy} = await import('unpdf');
+  const XLSX = await import('xlsx');
+  const db = await database();
+  const state = (await send(manager)).value;
+  const lines = Array.from({length:85},(_,i) => 'Belegposition ' + (i + 1) + ' im Monatsabschluss.');
+  const insert = async (id,name,body) => db.run(
+    'INSERT INTO documents(id,owner,name,body,scope,issuer,reviewed,importance,created) VALUES(?,?,?,?,?,?,?,?,?)',
+    [id,state.me.id,name,body,'private','Beispielunternehmen (fiktiv)',0,'normal',Date.now()]);
+  await insert('legacy-report','NHAT M08 | Monatsbericht',lines.join('\n'));
+  await insert('legacy-sheet','BETA02_Umsatz_2025.txt','Nettoumsatz im Geschäftsjahr 2025 genau 10.000.000 EUR.');
+  const docs = (await send(manager)).value.docs;
+  assert.equal(docs.find(d => d.id === 'legacy-report').format,'PDF');
+  assert.equal(docs.find(d => d.id === 'legacy-sheet').fileName,'BETA02_Umsatz_2025.xlsx');
+  const reads = await Promise.all([1,2].map(() => send(manager,{action:'read',doc:'legacy-report',position:63})));
+  assert.deepEqual(reads[0].value.files,reads[1].value.files);
+  const bytes = async (id,file) => {
+    const parts = [];
+    for(let part=0;part<file.count;part++) {
+      const r = await send(manager,{action:'original',doc:id,hash:file.hash,part});
+      parts.push(Buffer.from(r.value.bytes,'base64'));
+    }
+    return Buffer.concat(parts);
+  };
+  const first = reads[0].value;
+  assert.ok(first.location > 1);
+  const pdf = await getDocumentProxy(new Uint8Array(await bytes('legacy-report',first.files[0])));
+  const page = await pdf.getPage(first.location);
+  assert.ok((await page.getTextContent()).items.some(item => item.str?.includes('Belegposition 63')));
+  const sheetFile = (await send(manager,{action:'read',doc:'legacy-sheet'})).value.files[0];
+  const book = XLSX.read(await bytes('legacy-sheet',sheetFile));
+  assert.equal(book.Sheets.Nachweis.C5.v,10000000);
+  assert.equal(book.Sheets.Nachweis.D5.v,'EUR');
+  await send(reviewer,{action:'original',doc:'legacy-sheet',hash:sheetFile.hash,part:0},403);
+});
 test('Kontoschutz verlangt die Bestätigung für jede sensible Operation',async()=>{
   const {database}=await import('../server/database.js');
   const {hash}=await import('../server/auth.js');

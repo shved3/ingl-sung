@@ -1,6 +1,8 @@
 import {readFileSync} from 'node:fs';
 import {factorFor,confirmAction,sensitive,beginEnrollment,enroll} from './factor.js';
-import {stagePart,registerVersion} from './originals.js';
+import {fileDescription} from '../shared/documentFileName.js';
+import {fileLocations,renderFile} from './documentFiles.js';
+import {stagePart,registerVersion,saveRenderedFile} from './originals.js';
 import {cloudConfig,currentCloud,checkedCloud} from './cloud.js';
 import { database } from './database.js';
 import { uid, hash, fail, clean, roles, canUpload, canReview, emailOf, passwordHash, login, person, cookieToken, newSession, sessionCookie } from './auth.js';
@@ -38,10 +40,16 @@ async function documents(db, u, token) {
   const versions = new Map((await db.all('SELECT doc,cloud,manifest FROM source_versions')).map(row => [row.doc,row]));
   const accessible = await Promise.all(full.map(async d => {
     const version = versions.get(d.sourceId || d.id);
-    const filename = !d.excerpt && version && JSON.parse(version.manifest)[0]?.name;
-    d.format = d.excerpt ? 'Freigegebener Auszug' : filename ? (filename.match(/\.([a-z0-9]{1,8})$/i)?.[1]?.toUpperCase() || 'Datei') : 'Textquelle';
-    d.hasOriginal = Boolean(filename);
-    d.exercise = /fiktiv|übungsdaten/i.test(d.issuer || '') || /^(?:FIKTIVE ÜBUNGSDATEN|FIKTIVE TESTDATEN)/i.test(d.body.trimStart());
+    d.exercise = /fiktiv|übungsdaten/i.test(d.issuer || '') || /^FIKTIVE (ÜBUNGS|TEST)DATEN/i.test(d.body.trimStart());
+    const attached = !d.excerpt && version && JSON.parse(version.manifest)[0];
+    d.convertAttachment = Boolean(d.exercise && attached && /\.(txt|md|csv)$/i.test(attached.name));
+    const file = d.convertAttachment ? null : attached;
+    if (file) {
+      d.fileName = file.name;
+      d.format = file.name.match(/\.([a-z0-9]{1,8})$/i)?.[1]?.toUpperCase() || 'Datei';
+    } else Object.assign(d,fileDescription(d, d.convertAttachment ? attached.name : d.name));
+    d.generated = !file || Boolean(file.generated);
+    d.hasOriginal = Boolean(attached);
     return !version?.cloud || (d.owner===u.id && await currentCloud(JSON.parse(version.cloud),token));
   }));
   return full.filter((_,i)=>accessible[i]).concat(report());
@@ -99,12 +107,12 @@ function applyPolicy(row, docs, decisions) {
     const index = prov.findIndex(p => p.key === ref.doc);
     return index < 0 ? ref : {
       ...ref,
-      doc: current[index].id
+      doc: current[index].id, fileName: current[index].fileName, format: current[index].format
     };
   });
   const audit = r.audit ? { ...r.audit, sources: r.audit.sources.map(source => {
     const index = prov.findIndex(p => p.key === source.doc);
-    return index < 0 ? source : { ...source, doc: current[index].id };
+    return index < 0 ? source : { ...source, doc: current[index].id, fileName: current[index].fileName, format: current[index].format };
   }) } : undefined;
   return {
     ...row,
@@ -225,6 +233,7 @@ async function handle(req) {
         body,
         owner,
         excerpt,
+        convertAttachment,
         grantId,
         ...d
       }) => ({
@@ -246,8 +255,10 @@ async function handle(req) {
       if (b.action !== 'read') fail('Diese Veröffentlichung ist direkt als PDF verfügbar.', 400);
       return json({name:d.name, key:d.id, publishedUrl:d.publishedUrl, publisher:d.publisher, pages:d.pages});
     }
-    const version=!d.excerpt && await db.one('SELECT manifest FROM source_versions WHERE doc=?',d.sourceId||d.id);
-    const files=version?JSON.parse(version.manifest):[];
+    const sourceKey = d.sourceId || d.id;
+    const fileKey = d.convertAttachment ? 'rendered:' + sourceKey : sourceKey;
+    const version = !d.excerpt && await db.one('SELECT manifest FROM source_versions WHERE doc=?',fileKey);
+    let files=version?JSON.parse(version.manifest):[];
     if(b.action==='original'){
       const f=files.find(f=>f.hash===b.hash);
       if(!f||!Number.isInteger(b.part)||b.part<0||b.part>=f.count)fail('Keine Leseberechtigung.',403);
@@ -255,9 +266,16 @@ async function handle(req) {
       if(!part) fail('Original unvollständig.',409);
       return json(part);
     }
+    let excerptFile;
+    if (!files.length) {
+      const bytes = await renderFile(d);
+      if (d.excerpt) excerptFile = bytes.toString('base64');
+      else files = await saveRenderedFile(db,d,bytes,fileKey);
+    }
+    const location = d.generated && Number.isInteger(b.position) ? fileLocations(d)[b.position] : undefined;
     return json({
       files,key:d.id,version:d.sourceId||d.id,created:d.created,author:(await db.one('SELECT name FROM users WHERE id=?',d.owner))?.name,
-      name: d.name,
+      name: d.fileName, location, excerptFile, generated: d.generated,
       excerptOnly: Boolean(d.excerpt), exercise: d.exercise, text: d.body
     });
   }
@@ -271,7 +289,13 @@ async function handle(req) {
     const doc=cloud?hash(JSON.stringify([u.id,cloud.drive,cloud.item,cloud.tag])):uid();
     if(cloud && await db.one('SELECT id FROM documents WHERE id=?',doc))return json({ok:true});
     if(cloud && (!b.files?.length || b.team))fail('Cloudquellen sind persönlich gebunden.');
-    if(b.files?.length) await registerVersion(db,u,doc,b.files,cloud);
+    if (b.files?.length) await registerVersion(db,u,doc,b.files,cloud);
+    else {
+      const record = {id:doc,owner:u.id,name:title,body,issuer:clean(b.issuer,160),created:now,
+        exercise:/fiktiv|übungsdaten/i.test(b.issuer || '') || /^FIKTIVE (ÜBUNGS|TEST)DATEN/i.test(body)};
+      Object.assign(record,fileDescription(record));
+      await saveRenderedFile(db,record,await renderFile(record));
+    }
     await db.run('INSERT INTO documents(id,owner,name,body,scope,issuer,reviewed,importance,created) VALUES(?,?,?,?,?,?,?,?,?)', [doc, u.id, title, body, b.team ? 'team' : 'private', clean(b.issuer, 160), b.reviewed ? 1 : 0, b.importance, now]);
   } else if (b.action === 'classify') {
     if (!canUpload(u) || !['normal', 'important'].includes(b.importance)) fail('Keine Berechtigung.', 403);

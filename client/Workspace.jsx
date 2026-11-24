@@ -94,11 +94,11 @@ function AuditTrail({ r, openDoc, request, question }) {
     ].map(([status, title]) => <details className="auditBucket" key={status}>
       <summary>{title} <b>{counts(status).length}</b></summary>
       {counts(status).length ? counts(status).map(source => <details className="auditSource" key={source.id}>
-        <summary><span>{source.name} · S. {source.page}, Abs. {source.position}{source.important ? ' · Wichtig' : ''}</span><b>{source.score}/100</b></summary>
+        <summary><span>{source.fileName || source.name} · {['XLS','XLSX'].includes(source.format) ? 'Blatt' : 'S.'} {source.page}, Abs. {source.position}{source.important ? ' · Wichtig' : ''}</span><b>{source.score}/100</b></summary>
         <p>{source.reason}</p><blockquote>{source.quote}</blockquote>
         <div className="auditTable"><table><thead><tr><th>Kriterium</th><th>Punkte</th><th>Codeprüfung</th></tr></thead><tbody>{source.criteria.map(c => <tr key={c.label}><td>{c.label}</td><td>{c.points}/{c.max}</td><td>{c.reason}</td></tr>)}</tbody></table></div>
         {status === 'protected' && <p className="auditCounter"><b>Einzelprüfung durch KI 2: </b>{(() => { const check = a.counterChecks.find(c => c.id === source.id); return check ? check.urteil + ' · ' + check.grund : 'Offen – kein vollständiges Prüfurteil vorhanden.'; })()}</p>}
-        <button className="textBtn" onClick={() => openDoc(source.doc,source.page)}>Quelle öffnen <ArrowRight size={14} /></button>
+        <button className="textBtn" onClick={() => openDoc(source.doc,source.page,source.position)}>Quelle öffnen <ArrowRight size={14} /></button>
       </details>) : <p>Keine Fundstellen in dieser Gruppe.</p>}
     </details>)}
     {!!r.groups.length && <details className="auditBucket"><summary>Einzelbewertungen {r.mode === 'KI' ? 'durch KI 2' : 'der Quellensuche'}</summary>{r.groups.map(g => <section key={g.name}><h5>{g.name}</h5>{g.items.map(c => <p key={c.label}><b>{c.label} · {c.wert === null ? 'Entfällt' : c.wert + '/2'}</b><br />{c.grund}</p>)}</section>)}</details>}
@@ -126,7 +126,7 @@ function Result({
  {r.gap && <p className="answer"><b>Offener Punkt</b><br />{r.gap}</p>}
  {r.mode === 'Quellensuche' && aiEnabled && <button className="textBtn" disabled={busy} onClick={() => repeat(row.question)}>Mit KI beantworten</button>}
  {r.refs.length > 0 && <h4 className="resultSubheading">Belege</h4>}
- {r.refs.map((v, i) => <details className="quote" key={i}><summary><FileText size={15} />{v.name} <small>{v.page ? "S. " + v.page + " · " : ""}Abs. {v.position}</small><ChevronDown size={14} /></summary><blockquote>{v.quote}</blockquote><button className="textBtn" onClick={() => openDoc(v.doc,v.page)}>Quelle öffnen <ArrowRight size={14} /></button></details>)}
+ {r.refs.map((v, i) => <details className="quote" key={i}><summary><FileText size={15} />{v.fileName || v.name} <small>{v.page ? (['XLS','XLSX'].includes(v.format) ? 'Blatt ' : 'S. ') + v.page + " · " : ""}Abs. {v.position}</small><ChevronDown size={14} /></summary><blockquote>{v.quote}</blockquote><button className="textBtn" onClick={() => openDoc(v.doc,v.page,v.position)}>Quelle öffnen <ArrowRight size={14} /></button></details>)}
  {r.warning && <p className="warning">{r.warning}</p>}
  {r.score != null && <details className="rating"><summary><span className={'dot ' + (r.review?.status === 'pending' ? 'yellow' : r.review?.status === 'rejected' ? 'red' : r.score >= 70 ? 'green' : r.score >= 50 ? 'yellow' : 'red')} /><b>{r.score}/100</b> {r.mode === 'Quellensuche' ? 'Quellennachweis' : label(r.score)}<ChevronDown size={15} /></summary>{r.groups.map(g => <details key={g.name}><summary>{g.name}<ChevronDown size={14} /></summary>{g.items.map(c => <p key={c.label}><b>{c.label}</b> · {c.wert === null ? 'Entfällt' : c.wert + '/2'}<br />{c.grund}</p>)}</details>)}<small>Anteil der erreichten Punkte aus allen anwendbaren Kriterien.</small></details>}
  <ReviewTools row={row} previous={previous} allowRepeat={allowRepeat} repeat={repeat} busy={busy} />
@@ -145,7 +145,6 @@ export default function Workspace() {
     [question, Q] = useState(''),
     [weights, setWeights] = useState(defaults),
     [threshold, setThreshold] = useState(null),
-    [includeText, setIncludeText] = useState(false),
     [modal, M] = useState(''),
     [form, F] = useState({}),
     [busy, B] = useState(false),
@@ -250,7 +249,7 @@ export default function Workspace() {
     }
     run(async () => {
       const result = await api({
-        action: 'ask', sourceScope: includeText ? 'all' : 'originals',
+        action: 'ask', sourceScope: 'all',
         question: value, previousId,
         weights, threshold: threshold ?? data.sourceThreshold ?? 70,
         thread
@@ -260,12 +259,12 @@ export default function Workspace() {
       V('Chat');
     });
   };
-  const openDoc = (doc,page) => run(async () => {
+  const openDoc = (doc,page,position) => run(async () => {
     const d = await api({
       action: 'read',
-      doc
+      doc, position
     });
-    pop('source', {...d,page});
+    pop('source', {...d,page:d.location || page,position});
   });
   const request = q => pop('request', {
     purpose: q,
@@ -328,10 +327,7 @@ export default function Workspace() {
       M('');
     });
   }
-  const isOriginal = d => (d.hasOriginal || d.publishedUrl) && !d.exercise;
-  const originals = data.docs.filter(isOriginal);
-  const otherDocs = data.docs.filter(d => !isOriginal(d));
-  const documentRow = d => <div className="docItem" key={d.id}><button className="listRow" onClick={() => openDoc(d.id)}><FileText /><div><b>{d.name}</b><small>{d.format} · {d.exercise ? 'Übungsdaten · ' : ''}{d.importance === 'important' ? 'Wichtig · Pflichtprüfung' : 'Normal'} · {d.shared ? 'Befristet freigegeben' : d.publishedUrl ? 'Veröffentlicht' : d.scope === 'team' ? 'Im Arbeitsbereich geteilt' : 'Privat'} · {d.issuer || 'Herausgeber offen'}</small></div><ChevronRight /></button>{d.mine && manager && <button className="textBtn" onClick={() => pop('classify', {
+  const documentRow = d => <div className="docItem" key={d.id}><button className="listRow" onClick={() => openDoc(d.id)}><FileText /><div><b>{d.fileName || d.name}</b><small>{d.format} · {d.exercise ? 'Übungsdaten · ' : ''}{d.importance === 'important' ? 'Wichtig · Pflichtprüfung' : 'Normal'} · {d.shared ? 'Befristet freigegeben' : d.publishedUrl ? 'Veröffentlicht' : d.scope === 'team' ? 'Im Arbeitsbereich geteilt' : 'Privat'} · {d.issuer || 'Herausgeber offen'}</small></div><ChevronRight /></button>{d.mine && manager && <button className="textBtn" onClick={() => pop('classify', {
             doc: d.id,
             importance: d.importance === 'important' ? 'normal' : 'important'
           })}>Einstufung ändern</button>}</div>;
@@ -354,7 +350,6 @@ export default function Workspace() {
       microsoftToken = '';
       setWeights(defaults);
       setThreshold(null);
-      setIncludeText(false);
       T('');
       Q('');
       V('Chat');
@@ -371,7 +366,7 @@ export default function Workspace() {
  {error && !modal && <p role="alert" className="error">{error} <button onClick={() => E('')}>Schließen</button></p>}
  {view === 'Chat' && <div className={'chatPane ' + (!rows.length ? 'empty' : '')}>
  {!rows.length ? <div className="welcome"><span className="heroMark"><Layers size={32} strokeWidth={1.7} /></span><h1>Dokumente befragen.</h1><p>Stellen Sie eine Frage zu Ihren Unterlagen.<br />{data.aiEnabled ? 'Evidence leitet eine Antwort aus Ihren Quellen ab und zeigt die Belege.' : 'Aktuell ist die Quellensuche aktiv. Für KI-Schlussfolgerungen muss ein Modell verbunden sein.'}</p></div> : <div className="conversation">{rows.map(r => <Result allowRepeat previous={data.history.find(h => h.id === r.result.previousId)} key={r.id} row={r} aiEnabled={data.aiEnabled} busy={busy} request={request} openDoc={openDoc} repeat={ask} />)}<div ref={end} /></div>}
- <div className="composerWrap">{!!otherDocs.length && <label className="sourceScope"><input type="checkbox" checked={includeText} onChange={e => setIncludeText(e.target.checked)}/> Textquellen, Auszüge und Übungsdaten einbeziehen</label>}<Scoring threshold={threshold ?? data.sourceThreshold ?? 70} standard={data.sourceThreshold ?? 70} setThreshold={setThreshold} weights={weights} setWeights={setWeights} busy={busy}/><form className="composer" onSubmit={e => {
+ <div className="composerWrap"><Scoring threshold={threshold ?? data.sourceThreshold ?? 70} standard={data.sourceThreshold ?? 70} setThreshold={setThreshold} weights={weights} setWeights={setWeights} busy={busy}/><form className="composer" onSubmit={e => {
             e.preventDefault();
             ask(question);
           }}><textarea ref={input} aria-label="Frage" placeholder="Was möchten Sie wissen?" value={question} maxLength={2500} onChange={e => Q(e.target.value)} onKeyDown={e => {
@@ -392,7 +387,7 @@ export default function Workspace() {
               }[view]}</p></div>{view === 'Konten' ? <button className="primary" onClick={() => pop('user', {
             role: 'employee'
           })}>Konto anlegen</button> : view === 'Dokumente' && manager ? <button className="primary" onClick={() => pop('upload')}><Plus size={16} /> Dokument hinzufügen</button> : view === 'Freigaben' ? <button className="primary" onClick={() => request('')}>Nachweis anfragen</button> : null}</div>
- {view === 'Dokumente' && (data.docs.length ? <>{originals.map(documentRow)}{!!otherDocs.length && <details className="legacySources"><summary>Textquellen, Auszüge und Übungsdaten ({otherDocs.length})</summary>{otherDocs.map(documentRow)}</details>}</> : <Empty icon={FolderOpen} title="Noch keine Dokumente" text={manager ? "Laden Sie ein Text-PDF hoch oder fügen Sie einen Text ein." : "Bitten Sie die zuständige Person um einen Nachweis."} />)}
+ {view === 'Dokumente' && (data.docs.length ? data.docs.map(documentRow) : <Empty icon={FolderOpen} title="Noch keine Dokumente" text={manager ? "Laden Sie ein Text-PDF hoch oder fügen Sie einen Text ein." : "Bitten Sie die zuständige Person um einen Nachweis."} />)}
  {view === 'Konten' && data.users?.map(u => <div className="listRow" key={u.email}><div><b>{u.name}</b><small>{u.email} · {roleLabel[u.role]}</small></div></div>)}
  {view === 'Fachprüfung' && (data.queue?.length ? data.queue.map(row => <article className="requestRow" key={row.id}><p>{row.author} · {date(row.created)}</p><Result row={row} busy={busy} request={request} openDoc={openDoc} repeat={ask} /><button className="primary" onClick={() => pop('check', {
             id: row.id,

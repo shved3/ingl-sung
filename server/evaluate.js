@@ -1,3 +1,4 @@
+import {fileLocations} from './documentFiles.js';
 import {checkDecisionScope} from './decisionScope.js';
 import {completeReview} from './completeReview.js';
 import {criterionNames, validateWeights} from '../shared/scoring.js';
@@ -13,6 +14,7 @@ export function passages(docs, question) {
   const all = [];
   for (const d of docs) {
     const blocks = d.body.match(/[^\n]{1,1200}/g) || [];
+    const locations = d.generated ? fileLocations(d) : {};
     let page = 1;
     blocks.forEach((body, i) => {
       if (/^\[Seite \d+\]$/.test(body.trim())) {
@@ -27,7 +29,7 @@ export function passages(docs, question) {
         name: d.name,
         body,
         position: i + 1,
-        page,
+        page: locations[i + 1] || page,
         issuer: d.issuer,
         reviewed: d.reviewed,
         importance: d.importance,

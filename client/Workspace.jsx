@@ -154,6 +154,7 @@ export default function Workspace() {
     [setup, S] = useState(false),
     [menu, U] = useState(false),
     [loaded, L] = useState(false);
+  const menuButton = useRef(null);
   const end = useRef(null),
     input = useRef(null);
   async function refresh() {
@@ -196,12 +197,20 @@ export default function Workspace() {
     function close(e) {
       if (e.key === 'Escape' && !busy) {
         M('');
+        if (menu) menuButton.current?.focus();
         U(false);
       }
     }
     window.addEventListener('keydown', close);
     return () => window.removeEventListener('keydown', close);
-  }, [busy]);
+  }, [busy, menu]);
+  useEffect(() => {
+    if (!menu) return;
+    const mobile = window.matchMedia('(max-width: 730px)');
+    const closeOnResize = () => { if (!mobile.matches) U(false); };
+    mobile.addEventListener('change', closeOnResize);
+    return () => mobile.removeEventListener('change', closeOnResize);
+  }, [menu]);
   const field = (k, v) => F(f => ({
     ...f,
     [k]: v
@@ -326,23 +335,30 @@ export default function Workspace() {
     F({});
     refresh();
   }} />;
-  return <div className="app"><header><button className="mobile icon" aria-label="Navigation" onClick={() => U(!menu)}><Menu /></button><Brand /><div className="topEnd"><span>TUHH · Hochschulprojekt</span><button onClick={()=>pop('factor')}>Kontoschutz</button><button onClick={() => run(async () => {
-          await api({
-            action: 'logout'
-          });
-          microsoftToken='';
-          setWeights(defaults);setThreshold(null);
-          T('');
-          Q('');
-          V('Chat');
-          M('');
-        })}>Abmelden</button><div className="avatar" title={data.me?.email}>{(data.me?.name || 'E').slice(0, 1).toUpperCase()}</div></div></header>
- <aside className={menu ? 'shown' : ''}><button className="newChat" onClick={() => {
+  const accountActions = <>
+    <button onClick={() => {
+      U(false);
+      pop('factor');
+    }}>Kontoschutz</button>
+    <button onClick={() => run(async () => {
+      U(false);
+      await api({action: 'logout'});
+      microsoftToken = '';
+      setWeights(defaults);
+      setThreshold(null);
+      T('');
+      Q('');
+      V('Chat');
+      M('');
+    })}>Abmelden</button>
+  </>;
+  return <div className="app"><header><button ref={menuButton} className="mobile icon" aria-label={menu ? "Navigation schließen" : "Navigation öffnen"} aria-expanded={menu} aria-controls="workspace-navigation" onClick={() => U(!menu)}>{menu ? <X /> : <Menu />}</button><Brand /><div className="topEnd"><span>TUHH · Hochschulprojekt</span><div className="headerAccount">{accountActions}</div><div className="avatar" title={data.me?.email}>{(data.me?.name || 'E').slice(0, 1).toUpperCase()}</div></div></header>
+ <aside id="workspace-navigation" aria-label="Arbeitsbereich" className={menu ? 'shown' : ''}><button className="newChat" onClick={() => {
         openThread('');
-        input.current?.focus();
-      }}><Plus size={18} /> Neuer Chat</button><div className="nav">{nav.filter(([v]) => (v !== 'Konten' || data.me?.role === 'admin') && (v !== 'Fachprüfung' || reviewer)).map(([v, I]) => <button key={v} className={view === v ? 'active' : ''} onClick={() => go(v)}><I size={18} />{v}{v === 'Freigaben' && pending > 0 && <em>{pending}</em>}{v === 'Fachprüfung' && data.queue?.length > 0 && <em>{data.queue.length}</em>}</button>)}</div><div className="sideRecent"><small>LETZTE CHATS</small>{recent.length ? recent.map(r => <button key={r.thread} onClick={() => openThread(r.thread)}>{r.question}</button>) : <p>Noch keine Gespräche</p>}</div><div className="sideFooter"><LockKeyhole size={15} /> Privater Arbeitsbereich</div></aside>
+        requestAnimationFrame(() => input.current?.focus());
+      }}><Plus size={18} /> Neuer Chat</button><div className="nav">{nav.filter(([v]) => (v !== 'Konten' || data.me?.role === 'admin') && (v !== 'Fachprüfung' || reviewer)).map(([v, I]) => <button key={v} className={view === v ? 'active' : ''} onClick={() => go(v)}><I size={18} />{v}{v === 'Freigaben' && pending > 0 && <em>{pending}</em>}{v === 'Fachprüfung' && data.queue?.length > 0 && <em>{data.queue.length}</em>}</button>)}</div><div className="mobileAccount">{accountActions}</div><div className="sideRecent"><small>LETZTE CHATS</small>{recent.length ? recent.map(r => <button key={r.thread} onClick={() => openThread(r.thread)}>{r.question}</button>) : <p>Noch keine Gespräche</p>}</div><div className="sideFooter"><LockKeyhole size={15} /> Privater Arbeitsbereich</div></aside>
  {menu && <button className="scrim" aria-label="Navigation schließen" onClick={() => U(false)} />}
- <main><div className="crumb">Arbeitsbereich <ChevronRight size={13} /><b>{view}</b></div>
+ <main inert={menu || undefined}><div className="crumb">Arbeitsbereich <ChevronRight size={13} /><b>{view}</b></div>
  {error && !modal && <p role="alert" className="error">{error} <button onClick={() => E('')}>Schließen</button></p>}
  {view === 'Chat' && <div className={'chatPane ' + (!rows.length ? 'empty' : '')}>
  {!rows.length ? <div className="welcome"><span className="heroMark"><Layers size={32} strokeWidth={1.7} /></span><h1>Dokumente befragen.</h1><p>Stellen Sie eine Frage zu Ihren Unterlagen.<br />{data.aiEnabled ? 'Evidence leitet eine Antwort aus Ihren Quellen ab und zeigt die Belege.' : 'Aktuell ist die Quellensuche aktiv. Für KI-Schlussfolgerungen muss ein Modell verbunden sein.'}</p></div> : <div className="conversation">{rows.map(r => <Result allowRepeat previous={data.history.find(h => h.id === r.result.previousId)} key={r.id} row={r} aiEnabled={data.aiEnabled} busy={busy} request={request} openDoc={openDoc} repeat={ask} />)}<div ref={end} /></div>}
@@ -473,5 +489,5 @@ function Login({
           }
         }}>
  {setup && <><label>Setup-Code<input type="password" required onChange={e => field('token', e.target.value)} /></label><label>Name<input required onChange={e => field('name', e.target.value)} /></label></>}
- <label>E-Mail des Projektkontos<input type="email" autoComplete="username" autoFocus={!setup} required onChange={e => field('email', e.target.value)} /></label><label>Projektpasswort<input type="password" minLength={setup ? 12 : 1} autoComplete={setup ? 'new-password' : 'current-password'} required onChange={e => field('password', e.target.value)} /></label>{err && <p role="alert" className="error">{err}</p>}<button className="primary" disabled={busy}>{busy ? 'Bitte warten …' : setup ? 'Arbeitsbereich einrichten' : 'Anmelden'}<ArrowRight size={16} /></button></form></div></main></div>;
+ <label>E-Mail des Projektkontos<input type="email" autoComplete="username" autoFocus={!setup && window.matchMedia('(pointer: fine)').matches} required onChange={e => field('email', e.target.value)} /></label><label>Projektpasswort<input type="password" minLength={setup ? 12 : 1} autoComplete={setup ? 'new-password' : 'current-password'} required onChange={e => field('password', e.target.value)} /></label>{err && <p role="alert" className="error">{err}</p>}<button className="primary" disabled={busy}>{busy ? 'Bitte warten …' : setup ? 'Arbeitsbereich einrichten' : 'Anmelden'}<ArrowRight size={16} /></button></form></div></main></div>;
 }

@@ -12,3 +12,5 @@ for(const [source,name] of [
 await build({entryPoints:['mammoth'],platform:'browser',bundle:true,minify:true,format:'esm',outfile:out+'/word.mjs'});
 await build({entryPoints:['client/cloudLogin.js'],platform:'browser',bundle:true,minify:true,format:'esm',outfile:out+'/cloud.mjs'});
 await build({entryPoints:['client/main.jsx'],platform:'browser',bundle:true,minify:true,format:'esm',legalComments:'linked',outfile:'public/app.js'});
+
+await import('./published-report.mjs');

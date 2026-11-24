@@ -126,7 +126,7 @@ function Result({
  {r.gap && <p className="answer"><b>Offener Punkt</b><br />{r.gap}</p>}
  {r.mode === 'Quellensuche' && aiEnabled && <button className="textBtn" disabled={busy} onClick={() => repeat(row.question)}>Mit KI beantworten</button>}
  {r.refs.length > 0 && <h4 className="resultSubheading">Belege</h4>}
- {r.refs.map((v, i) => <details className="quote" key={i}><summary><FileText size={15} />{v.name} <small>Abs. {v.position}</small><ChevronDown size={14} /></summary><blockquote>{v.quote}</blockquote><button className="textBtn" onClick={() => openDoc(v.doc,v.page)}>Quelle öffnen <ArrowRight size={14} /></button></details>)}
+ {r.refs.map((v, i) => <details className="quote" key={i}><summary><FileText size={15} />{v.name} <small>{v.page ? "S. " + v.page + " · " : ""}Abs. {v.position}</small><ChevronDown size={14} /></summary><blockquote>{v.quote}</blockquote><button className="textBtn" onClick={() => openDoc(v.doc,v.page)}>Quelle öffnen <ArrowRight size={14} /></button></details>)}
  {r.warning && <p className="warning">{r.warning}</p>}
  {r.score != null && <details className="rating"><summary><span className={'dot ' + (r.review?.status === 'pending' ? 'yellow' : r.review?.status === 'rejected' ? 'red' : r.score >= 70 ? 'green' : r.score >= 50 ? 'yellow' : 'red')} /><b>{r.score}/100</b> {r.mode === 'Quellensuche' ? 'Quellennachweis' : label(r.score)}<ChevronDown size={15} /></summary>{r.groups.map(g => <details key={g.name}><summary>{g.name}<ChevronDown size={14} /></summary>{g.items.map(c => <p key={c.label}><b>{c.label}</b> · {c.wert === null ? 'Entfällt' : c.wert + '/2'}<br />{c.grund}</p>)}</details>)}<small>Anteil der erreichten Punkte aus allen anwendbaren Kriterien.</small></details>}
  <ReviewTools row={row} previous={previous} allowRepeat={allowRepeat} repeat={repeat} busy={busy} />
@@ -145,6 +145,7 @@ export default function Workspace() {
     [question, Q] = useState(''),
     [weights, setWeights] = useState(defaults),
     [threshold, setThreshold] = useState(null),
+    [includeText, setIncludeText] = useState(false),
     [modal, M] = useState(''),
     [form, F] = useState({}),
     [busy, B] = useState(false),
@@ -249,7 +250,7 @@ export default function Workspace() {
     }
     run(async () => {
       const result = await api({
-        action: 'ask',
+        action: 'ask', sourceScope: includeText ? 'all' : 'originals',
         question: value, previousId,
         weights, threshold: threshold ?? data.sourceThreshold ?? 70,
         thread
@@ -327,6 +328,13 @@ export default function Workspace() {
       M('');
     });
   }
+  const isOriginal = d => (d.hasOriginal || d.publishedUrl) && !d.exercise;
+  const originals = data.docs.filter(isOriginal);
+  const otherDocs = data.docs.filter(d => !isOriginal(d));
+  const documentRow = d => <div className="docItem" key={d.id}><button className="listRow" onClick={() => openDoc(d.id)}><FileText /><div><b>{d.name}</b><small>{d.format} · {d.exercise ? 'Übungsdaten · ' : ''}{d.importance === 'important' ? 'Wichtig · Pflichtprüfung' : 'Normal'} · {d.shared ? 'Befristet freigegeben' : d.publishedUrl ? 'Veröffentlicht' : d.scope === 'team' ? 'Im Arbeitsbereich geteilt' : 'Privat'} · {d.issuer || 'Herausgeber offen'}</small></div><ChevronRight /></button>{d.mine && manager && <button className="textBtn" onClick={() => pop('classify', {
+            doc: d.id,
+            importance: d.importance === 'important' ? 'normal' : 'important'
+          })}>Einstufung ändern</button>}</div>;
   const pending = data.requests.filter(r => r.status === 'open' && r.recipient === data.me?.email).length;
   if (!loaded && !error) return <div className="login"><header><Brand projectLogin /></header><main><p role="status">Arbeitsbereich wird geladen …</p></main></div>;
   if (loaded && !auth && !data.me && error) return <div className="login"><header><Brand projectLogin /></header><main><div className="loginBox"><h1>Arbeitsbereich nicht erreichbar</h1><p>{error}</p><button className="primary" onClick={refresh}>Erneut verbinden</button></div></main></div>;
@@ -346,6 +354,7 @@ export default function Workspace() {
       microsoftToken = '';
       setWeights(defaults);
       setThreshold(null);
+      setIncludeText(false);
       T('');
       Q('');
       V('Chat');
@@ -362,7 +371,7 @@ export default function Workspace() {
  {error && !modal && <p role="alert" className="error">{error} <button onClick={() => E('')}>Schließen</button></p>}
  {view === 'Chat' && <div className={'chatPane ' + (!rows.length ? 'empty' : '')}>
  {!rows.length ? <div className="welcome"><span className="heroMark"><Layers size={32} strokeWidth={1.7} /></span><h1>Dokumente befragen.</h1><p>Stellen Sie eine Frage zu Ihren Unterlagen.<br />{data.aiEnabled ? 'Evidence leitet eine Antwort aus Ihren Quellen ab und zeigt die Belege.' : 'Aktuell ist die Quellensuche aktiv. Für KI-Schlussfolgerungen muss ein Modell verbunden sein.'}</p></div> : <div className="conversation">{rows.map(r => <Result allowRepeat previous={data.history.find(h => h.id === r.result.previousId)} key={r.id} row={r} aiEnabled={data.aiEnabled} busy={busy} request={request} openDoc={openDoc} repeat={ask} />)}<div ref={end} /></div>}
- <div className="composerWrap"><Scoring threshold={threshold ?? data.sourceThreshold ?? 70} standard={data.sourceThreshold ?? 70} setThreshold={setThreshold} weights={weights} setWeights={setWeights} busy={busy}/><form className="composer" onSubmit={e => {
+ <div className="composerWrap">{!!otherDocs.length && <label className="sourceScope"><input type="checkbox" checked={includeText} onChange={e => setIncludeText(e.target.checked)}/> Textquellen, Auszüge und Übungsdaten einbeziehen</label>}<Scoring threshold={threshold ?? data.sourceThreshold ?? 70} standard={data.sourceThreshold ?? 70} setThreshold={setThreshold} weights={weights} setWeights={setWeights} busy={busy}/><form className="composer" onSubmit={e => {
             e.preventDefault();
             ask(question);
           }}><textarea ref={input} aria-label="Frage" placeholder="Was möchten Sie wissen?" value={question} maxLength={2500} onChange={e => Q(e.target.value)} onKeyDown={e => {
@@ -383,10 +392,7 @@ export default function Workspace() {
               }[view]}</p></div>{view === 'Konten' ? <button className="primary" onClick={() => pop('user', {
             role: 'employee'
           })}>Konto anlegen</button> : view === 'Dokumente' && manager ? <button className="primary" onClick={() => pop('upload')}><Plus size={16} /> Dokument hinzufügen</button> : view === 'Freigaben' ? <button className="primary" onClick={() => request('')}>Nachweis anfragen</button> : null}</div>
- {view === 'Dokumente' && (data.docs.length ? data.docs.map(d => <div className="docItem" key={d.id}><button className="listRow" onClick={() => openDoc(d.id)}><FileText /><div><b>{d.name}</b><small>{d.importance === 'important' ? 'Wichtig · Pflichtprüfung' : 'Normal'} · {d.shared ? 'Befristet freigegeben' : d.scope === 'team' ? 'Im Arbeitsbereich geteilt' : 'Privat'} · {d.issuer || 'Herausgeber offen'}</small></div><ChevronRight /></button>{d.mine && manager && <button className="textBtn" onClick={() => pop('classify', {
-            doc: d.id,
-            importance: d.importance === 'important' ? 'normal' : 'important'
-          })}>Einstufung ändern</button>}</div>) : <Empty icon={FolderOpen} title="Noch keine Dokumente" text={manager ? "Laden Sie ein Text-PDF hoch oder fügen Sie einen Text ein." : "Bitten Sie die zuständige Person um einen Nachweis."} />)}
+ {view === 'Dokumente' && (data.docs.length ? <>{originals.map(documentRow)}{!!otherDocs.length && <details className="legacySources"><summary>Textquellen, Auszüge und Übungsdaten ({otherDocs.length})</summary>{otherDocs.map(documentRow)}</details>}</> : <Empty icon={FolderOpen} title="Noch keine Dokumente" text={manager ? "Laden Sie ein Text-PDF hoch oder fügen Sie einen Text ein." : "Bitten Sie die zuständige Person um einen Nachweis."} />)}
  {view === 'Konten' && data.users?.map(u => <div className="listRow" key={u.email}><div><b>{u.name}</b><small>{u.email} · {roleLabel[u.role]}</small></div></div>)}
  {view === 'Fachprüfung' && (data.queue?.length ? data.queue.map(row => <article className="requestRow" key={row.id}><p>{row.author} · {date(row.created)}</p><Result row={row} busy={busy} request={request} openDoc={openDoc} repeat={ask} /><button className="primary" onClick={() => pop('check', {
             id: row.id,
@@ -413,7 +419,7 @@ export default function Workspace() {
  </section>}</main>
  {modal && <div className="back" onClick={e => {
       if (e.target === e.currentTarget && !busy) M('');
-    }}><section role="dialog" aria-modal="true" aria-labelledby="dialog-title" className="dialog"><button className="close icon" aria-label="Schließen" onClick={() => M('')}><X size={19} /></button><h2 id="dialog-title">{{
+    }}><section role="dialog" aria-modal="true" aria-labelledby="dialog-title" className={modal === 'source' ? 'dialog sourceDialog' : 'dialog'}><button className="close icon" aria-label="Schließen" onClick={() => M('')}><X size={19} /></button><h2 id="dialog-title">{{
             upload: 'Dokument hinzufügen',
             factor: 'Zwei-Faktor-Anmeldung',
             source: form.name,
@@ -423,7 +429,7 @@ export default function Workspace() {
             user: 'Konto anlegen',
             check: 'Fachprüfung abschließen'
           }[modal]}</h2>{error && <p className="error" role="alert">{error}</p>}
- {modal === 'factor' ? <AccountFactor enabled={data.factorEnabled} api={api} refresh={refresh}/> : modal === 'source' ? <Originals doc={form} api={api}/> : <form onSubmit={submit}>
+ {modal === 'factor' ? <AccountFactor enabled={data.factorEnabled} api={api} refresh={refresh}/> : modal === 'source' ? <Originals key={form.key} doc={form} api={api}/> : <form onSubmit={submit}>
  {modal === 'user' && <><label>Name<input autoFocus required onChange={e => field('name', e.target.value)} /></label><label>E-Mail<input type="email" required onChange={e => field('email', e.target.value)} /></label><label>Passwort (mindestens 12 Zeichen)<input required type="password" minLength={12} autoComplete="new-password" onChange={e => field('password', e.target.value)} /></label><label>Rolle<select value={form.role} onChange={e => field('role', e.target.value)}>{Object.entries(roleLabel).map(([val, txt]) => <option key={val} value={val}>{txt}</option>)}</select></label></>}
  {modal === 'check' && <><label>Aussage bearbeiten (optional)<select value={form.claim || ''} onChange={e => field('claim', e.target.value)}><option value="">Gesamtes Ergebnis prüfen</option>{(() => {
  const r = data.queue.find(row => row.id === form.id)?.result;
@@ -436,7 +442,7 @@ export default function Workspace() {
  <details><summary>Cloudquelle synchronisieren</summary>{data.cloudConfig?<><label>OneDrive-Dateipfad oder SharePoint-Pfad (drives/…/items/…)<input value={form.path||''} onChange={e=>field('path',e.target.value)}/></label><button className="textBtn" type="button" disabled={!!reading||busy||!form.path?.trim()} onClick={syncCloud}>Mit Microsoft verbinden und Version laden</button></>:<p>Für diesen Arbeitsbereich ist noch kein Microsoft-Mandant verbunden.</p>}</details>
  {reading && <p role="status">{reading}</p>}
  {form.ocr && <label className="check"><input required type="checkbox" checked={!!form.checked} onChange={e=>field('checked',e.target.checked)}/> Scantext, Beträge und Datumsangaben mit dem Original abgeglichen</label>}
- <label>Titel<input autoFocus required maxLength={150} value={form.name || ''} onChange={e => field('name', e.target.value)} /></label><label>Dokumenttext<textarea required rows="5" maxLength={200000} value={form.text || ''} onChange={e => field('text', e.target.value)} /></label><label>Wichtigkeit<select value={form.importance || 'normal'} onChange={e => field('importance', e.target.value)}><option value="normal">Normal</option><option value="important">Wichtig · fachliche Prüfung erforderlich</option></select></label><label>Herausgeber (optional)<input maxLength={160} onChange={e => field('issuer', e.target.value)} /></label><label className="check"><input type="checkbox" onChange={e => field('reviewed', e.target.checked)} /> Prüfstatus ist dokumentiert</label><label className="check"><input type="checkbox" disabled={!!form.cloud} checked={!!form.team} onChange={e => field('team', e.target.checked)} /> Für alle Nutzer dieser Website freigeben</label></>}
+ <label>Titel<input autoFocus required maxLength={150} value={form.name || ''} onChange={e => field('name', e.target.value)} /></label><label>Dokumenttext<textarea required rows="5" maxLength={200000} value={form.text || ''} readOnly={form.localFiles?.length > 0 && !form.ocr} onChange={e => field('text', e.target.value)} /></label><label>Wichtigkeit<select value={form.importance || 'normal'} onChange={e => field('importance', e.target.value)}><option value="normal">Normal</option><option value="important">Wichtig · fachliche Prüfung erforderlich</option></select></label><label>Herausgeber (optional)<input maxLength={160} onChange={e => field('issuer', e.target.value)} /></label><label className="check"><input type="checkbox" onChange={e => field('reviewed', e.target.checked)} /> Prüfstatus ist dokumentiert</label><label className="check"><input type="checkbox" disabled={!!form.cloud} checked={!!form.team} onChange={e => field('team', e.target.checked)} /> Für alle Nutzer dieser Website freigeben</label></>}
  {modal === 'request' && <><label>E-Mail der zuständigen Person<input type="email" autoFocus required value={form.recipient} onChange={e => field('recipient', e.target.value)} /></label><label>Welchen Nachweis benötigen Sie und wofür?<textarea required rows="4" value={form.purpose} onChange={e => field('purpose', e.target.value)} /></label><p className="muted">Die Anfrage erscheint im Freigabepostfach dieser Person, sobald sie Zugang zu dieser Website hat.</p></>}
  {modal === 'review' && <><label>Eigenes Dokument<select required value={form.doc} onChange={e => field('doc', e.target.value)}><option value="">Dokument auswählen</option>{data.docs.filter(d => d.mine).map(d => <option key={d.id} value={d.id}>{d.name}</option>)}</select></label><label>Wörtlicher Auszug<textarea rows="4" value={form.excerpt} onChange={e => field('excerpt', e.target.value)} placeholder="Leer lassen, um das gesamte Dokument freizugeben." /></label><label>Dauer<select value={form.days} onChange={e => field('days', Number(e.target.value))}><option value={1}>1 Tag</option><option value={7}>7 Tage</option></select></label></>}
  <button className="primary" disabled={busy || !!reading || auth || !loaded}>{busy ? 'Wird gespeichert …' : {

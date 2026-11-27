@@ -150,3 +150,15 @@
 .login .projectAccess{border-top:4px solid var(--orange);box-shadow:0 10px 32px #161a420a;padding:clamp(22px,4vw,36px)}
 .projectAccess .primary{background:#ac4000}
 .projectAccess .heroMark{width:46px;height:46px;border-radius:12px;margin-bottom:16px}
+
+.agentResult{padding:16px 18px;margin:16px 0;border:1px solid var(--line);border-radius:12px;background:white}
+.agentResult .resultHeading{display:flex;align-items:center;gap:9px;margin:0 0 10px;color:var(--navy)}
+.agentResult .resultHeading small{border-radius:5px;padding:3px 7px;font-size:11px;letter-spacing:.03em;color:#844209;background:#fff0e3}
+.auditorResult{background:#f8f9fc}
+.auditorResult .resultHeading small{color:#384574;background:#e8ecf7}
+.auditOutcome{font-size:14px;line-height:1.55}
+@media (prefers-reduced-motion:no-preference){
+  .agentResult{animation:showAgentResult .34s ease-out backwards}
+  .analystResult + .auditorResult{animation-delay:.42s}
+  @keyframes showAgentResult{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+}

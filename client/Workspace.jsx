@@ -69,13 +69,14 @@ function ReviewBadge({
   return <div className={'reviewBadge ' + v.status}><b>{text}</b><span>{v.reason} · {v.sources.join(', ')}</span>{v.note && <span>{v.by}: {v.note}</span>}</div>;
 }
 
+const agentNames = text => text?.replaceAll('KI 1', 'Analyst').replaceAll('KI 2', 'Auditor');
 const auditStates = { done: 'Abgeschlossen', failed: 'Fehlgeschlagen', blocked: 'Klärung nötig', skipped: 'Nicht ausgeführt' };
 function AuditTrail({ r, openDoc, request, question }) {
   const a = r.audit;
   if (!a) return null;
   const counts = status => a.sources.filter(s => s.decision === status);
   const human = r.review;
-  const needs = [...a.openEvidence];
+  const needs = a.openEvidence.map(agentNames);
   if (human?.status === 'pending') needs.push('Menschliche Fachprüfung wichtiger Quellen: ' + human.sources.join(', '));
   if (human?.status === 'rejected') needs.push('Fachlich abgelehnt: ' + human.note);
   const time = v => new Date(v).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -83,7 +84,7 @@ function AuditTrail({ r, openDoc, request, question }) {
     <div className="auditTitle"><h4>Prüfverlauf</h4><span>Schwelle: <b>{a.threshold}/100</b></span></div>
     <p className="auditHint">Gespeicherter Ablauf dieser Anfrage · {date(a.startedAt)} · {time(a.startedAt)}</p>
     <ol className="auditSteps">{a.steps.map(step => <li key={step.id} className={step.status}>
-      <div><b>{step.label}</b><span className="auditState">{auditStates[step.status]}{step.at ? ' · ' + time(step.at) : ''}</span></div><p>{step.detail}</p>
+      <div><b>{agentNames(step.label)}</b><span className="auditState">{auditStates[step.status]}{step.at ? ' · ' + time(step.at) : ''}</span></div><p>{agentNames(step.detail)}</p>
     </li>)}<li className={human ? human.status === 'confirmed' ? 'done' : 'blocked' : 'skipped'}>
       <div><b>6 · Menschliche Fachprüfung</b><span className="auditState">{human ? { pending: 'Ausstehend', confirmed: 'Bestätigt', rejected: 'Abgelehnt' }[human.status] : 'Keine Pflichtprüfung ausgelöst'}</span></div>
       <p>{human ? human.sources.join(', ') + (human.note ? ' · ' + human.by + ': ' + human.note : ' · Eine andere fachprüfberechtigte Person muss entscheiden, unabhängig von den Punkten.') : 'Keine als wichtig eingestufte Quelle im Auswertungskontext.'}</p>
@@ -95,13 +96,13 @@ function AuditTrail({ r, openDoc, request, question }) {
       <summary>{title} <b>{counts(status).length}</b></summary>
       {counts(status).length ? counts(status).map(source => <details className="auditSource" key={source.id}>
         <summary><span>{source.fileName || source.name} · {['XLS','XLSX'].includes(source.format) ? 'Blatt' : 'S.'} {source.page}, Abs. {source.position}{source.important ? ' · Wichtig' : ''}</span><b>{source.score}/100</b></summary>
-        <p>{source.reason}</p><blockquote>{source.quote}</blockquote>
+        <p>{agentNames(source.reason)}</p><blockquote>{source.quote}</blockquote>
         <div className="auditTable"><table><thead><tr><th>Kriterium</th><th>Punkte</th><th>Codeprüfung</th></tr></thead><tbody>{source.criteria.map(c => <tr key={c.label}><td>{c.label}</td><td>{c.points}/{c.max}</td><td>{c.reason}</td></tr>)}</tbody></table></div>
-        {status === 'protected' && <p className="auditCounter"><b>Einzelprüfung durch KI 2: </b>{(() => { const check = a.counterChecks.find(c => c.id === source.id); return check ? check.urteil + ' · ' + check.grund : 'Offen – kein vollständiges Prüfurteil vorhanden.'; })()}</p>}
+        {status === 'protected' && <p className="auditCounter"><b>Einzelprüfung durch Auditor: </b>{(() => { const check = a.counterChecks.find(c => c.id === source.id); return check ? check.urteil + ' · ' + check.grund : 'Offen – kein vollständiges Prüfurteil vorhanden.'; })()}</p>}
         <button className="textBtn" onClick={() => openDoc(source.doc,source.page,source.position)}>Quelle öffnen <ArrowRight size={14} /></button>
       </details>) : <p>Keine Fundstellen in dieser Gruppe.</p>}
     </details>)}
-    {!!r.groups.length && <details className="auditBucket"><summary>Einzelbewertungen {r.mode === 'KI' ? 'durch KI 2' : 'der Quellensuche'}</summary>{r.groups.map(g => <section key={g.name}><h5>{g.name}</h5>{g.items.map(c => <p key={c.label}><b>{c.label} · {c.wert === null ? 'Entfällt' : c.wert + '/2'}</b><br />{c.grund}</p>)}</section>)}</details>}
+    {!!r.groups.length && <details className="auditBucket"><summary>Einzelbewertungen {r.mode === 'KI' ? 'durch Auditor' : 'der Quellensuche'}</summary>{r.groups.map(g => <section key={g.name}><h5>{g.name}</h5>{g.items.map(c => <p key={c.label}><b>{c.label} · {c.wert === null ? 'Entfällt' : c.wert + '/2'}</b><br />{c.grund}</p>)}</section>)}</details>}
     <div className="auditNeeds"><h5>Offene Nachweise und Prüfungen · {needs.length}</h5>{needs.length ? <><ul>{needs.map((need, i) => <li key={i}>{need}</li>)}</ul><button className="textBtn" onClick={() => request(question + '\n\nOffene Nachweise:\n' + needs.join('\n'))}>Nachweise anfragen</button></> : <p>Im Prüfablauf keine offenen Nachweise gemeldet. Das ist keine Garantie für Vollständigkeit.</p>}</div>
   </section>;
 }
@@ -118,16 +119,16 @@ function Result({
   const heading = generationFailed ? 'Keine KI-Antwort erstellt' : r.mode === 'KI'
     ? (r.missing ? (r.reasoning && r.text ? 'Teilergebnis' : 'Klärungsbedarf') : r.warning ? 'KI-Entwurf · Prüfung offen' : r.review?.status === 'pending' ? 'Schlussfolgerung · Fachprüfung ausstehend' : r.review?.status === 'rejected' ? 'Fachlich abgelehnte Schlussfolgerung' : 'Schlussfolgerung')
     : r.mode === 'Quellensuche' ? 'Ergebnis der Quellensuche' : 'Zugriff';
-  return <div className="turn"><div className="bubble">{row.question}</div><div className="answername"><span className="smallMark"><Layers size={16} /></span>Evidence <small>{r.mode}</small></div><h3 className="resultHeading">{r.mode === 'KI' && r.text ? 'Antwort von KI 1' : heading}</h3>
- {r.text && <p className={r.mode === 'KI' ? 'answer primaryAnswer' : 'answer'}>{r.mode === 'KI' ? <strong>{r.text}</strong> : r.text}</p>}
+  return <div className="turn"><div className="bubble">{row.question}</div><div className="answername"><span className="smallMark"><Layers size={16} /></span>Evidence <small>{r.mode}</small></div><h3 className="resultHeading">{r.mode === 'KI' && r.text ? 'Antwort von Analyst' : heading}</h3>
+ {r.text && <p className={r.mode === 'KI' ? 'answer primaryAnswer' : 'answer'}>{r.mode === 'KI' ? <strong>{agentNames(r.text)}</strong> : r.text}</p>}
  {r.mode === 'KI' && r.text && <p className="answerStatus">{heading}</p>}
  <ReviewBadge r={r} />
  {r.reasoning && <><h4 className="resultSubheading">Begründung</h4><p className="answer">{r.reasoning}</p></>}
- {r.gap && <p className="answer"><b>Offener Punkt</b><br />{r.gap}</p>}
+ {r.gap && <p className="answer"><b>Offener Punkt</b><br />{agentNames(r.gap)}</p>}
  {r.mode === 'Quellensuche' && aiEnabled && <button className="textBtn" disabled={busy} onClick={() => repeat(row.question)}>Mit KI beantworten</button>}
  {r.refs.length > 0 && <h4 className="resultSubheading">Belege</h4>}
  {r.refs.map((v, i) => <details className="quote" key={i}><summary><FileText size={15} />{v.fileName || v.name} <small>{v.page ? (['XLS','XLSX'].includes(v.format) ? 'Blatt ' : 'S. ') + v.page + " · " : ""}Abs. {v.position}</small><ChevronDown size={14} /></summary><blockquote>{v.quote}</blockquote><button className="textBtn" onClick={() => openDoc(v.doc,v.page,v.position)}>Quelle öffnen <ArrowRight size={14} /></button></details>)}
- {r.warning && <p className="warning">{r.warning}</p>}
+ {r.warning && <p className="warning">{agentNames(r.warning)}</p>}
  {r.score != null && <details className="rating"><summary><span className={'dot ' + (r.review?.status === 'pending' ? 'yellow' : r.review?.status === 'rejected' ? 'red' : r.score >= 70 ? 'green' : r.score >= 50 ? 'yellow' : 'red')} /><b>{r.score}/100</b> {r.mode === 'Quellensuche' ? 'Quellennachweis' : label(r.score)}<ChevronDown size={15} /></summary>{r.groups.map(g => <details key={g.name}><summary>{g.name}<ChevronDown size={14} /></summary>{g.items.map(c => <p key={c.label}><b>{c.label}</b> · {c.wert === null ? 'Entfällt' : c.wert + '/2'}<br />{c.grund}</p>)}</details>)}<small>Anteil der erreichten Punkte aus allen anwendbaren Kriterien.</small></details>}
  <ReviewTools row={row} previous={previous} allowRepeat={allowRepeat} repeat={repeat} busy={busy} />
  <AuditTrail r={r} openDoc={openDoc} request={request} question={row.question} />
@@ -347,13 +348,7 @@ export default function Workspace() {
     <button onClick={() => run(async () => {
       U(false);
       await api({action: 'logout'});
-      microsoftToken = '';
-      setWeights(defaults);
-      setThreshold(null);
-      T('');
-      Q('');
-      V('Chat');
-      M('');
+      window.location.assign('/');
     })}>Abmelden</button>
   </>;
   return <div className="app"><header><button ref={menuButton} className="mobile icon" aria-label={menu ? "Navigation schließen" : "Navigation öffnen"} aria-expanded={menu} aria-controls="workspace-navigation" onClick={() => U(!menu)}>{menu ? <X /> : <Menu />}</button><Brand /><div className="topEnd"><span>TUHH · Hochschulprojekt</span><div className="headerAccount">{accountActions}</div><div className="avatar" title={data.me?.email}>{(data.me?.name || 'E').slice(0, 1).toUpperCase()}</div></div></header>
@@ -365,7 +360,7 @@ export default function Workspace() {
  <main inert={menu || undefined}><div className="crumb">Arbeitsbereich <ChevronRight size={13} /><b>{view}</b></div>
  {error && !modal && <p role="alert" className="error">{error} <button onClick={() => E('')}>Schließen</button></p>}
  {view === 'Chat' && <div className={'chatPane ' + (!rows.length ? 'empty' : '')}>
- {!rows.length ? <div className="welcome"><span className="heroMark"><Layers size={32} strokeWidth={1.7} /></span><h1>Dokumente befragen.</h1><p>Stellen Sie eine Frage zu Ihren Unterlagen.<br />{data.aiEnabled ? 'Evidence leitet eine Antwort aus Ihren Quellen ab und zeigt die Belege.' : 'Aktuell ist die Quellensuche aktiv. Für KI-Schlussfolgerungen muss ein Modell verbunden sein.'}</p></div> : <div className="conversation">{rows.map(r => <Result allowRepeat previous={data.history.find(h => h.id === r.result.previousId)} key={r.id} row={r} aiEnabled={data.aiEnabled} busy={busy} request={request} openDoc={openDoc} repeat={ask} />)}<div ref={end} /></div>}
+ {!rows.length ? <div className="welcome"><span className="heroMark"><Layers size={32} strokeWidth={1.7} /></span><h1>Dokumente befragen.</h1><p>Stellen Sie eine Frage zu Ihren Unterlagen.<br />{data.aiEnabled ? 'Analyst formuliert eine Antwort mit Belegen. Auditor prüft sie auf Lücken und Widersprüche.' : 'Aktuell ist die Quellensuche aktiv. Für KI-Schlussfolgerungen muss ein Modell verbunden sein.'}</p></div> : <div className="conversation">{rows.map(r => <Result allowRepeat previous={data.history.find(h => h.id === r.result.previousId)} key={r.id} row={r} aiEnabled={data.aiEnabled} busy={busy} request={request} openDoc={openDoc} repeat={ask} />)}<div ref={end} /></div>}
  <div className="composerWrap"><Scoring threshold={threshold ?? data.sourceThreshold ?? 70} standard={data.sourceThreshold ?? 70} setThreshold={setThreshold} weights={weights} setWeights={setWeights} busy={busy}/><form className="composer" onSubmit={e => {
             e.preventDefault();
             ask(question);
@@ -473,7 +468,7 @@ function Login({
     ...old,
     [k]: v
   }));
-  return <div className="login"><header><Brand projectLogin /><small>TUHH · Hochschulprojekt</small></header><main><div className="loginBox"><div className="heroMark"><LockKeyhole /></div><h1>{setup ? 'Arbeitsbereich einrichten' : 'Evidence-Demo öffnen'}</h1><p>{setup ? 'Legen Sie das erste Administrationskonto an.' : 'Verwenden Sie das Testkonto, das Ihnen das Projektteam zugeteilt hat.'}</p><p>Studentischer Prototyp für eine ING-Fallstudie. Bitte ausschließlich Zugangsdaten für dieses Hochschulprojekt eingeben. ING-Banking- und Firmenpasswörter gehören nicht hierher.</p><form onSubmit={async e => {
+  return <div className="login"><header><Brand projectLogin /><small>TUHH · Hochschulprojekt</small></header><main><div className="loginBox"><div className="heroMark"><LockKeyhole /></div><h1>{setup ? 'Arbeitsbereich einrichten' : 'Geschützter Arbeitsbereich'}</h1><p>{setup ? 'Legen Sie das erste Administrationskonto an.' : 'Verwenden Sie das Testkonto, das Ihnen das Projektteam zugeteilt hat.'}</p><p>Studentischer Prototyp für eine ING-Fallstudie. Bitte ausschließlich Zugangsdaten für dieses Hochschulprojekt eingeben. ING-Banking- und Firmenpasswörter gehören nicht hierher.</p><form onSubmit={async e => {
           e.preventDefault();
           B(true);
           E('');
@@ -490,5 +485,5 @@ function Login({
           }
         }}>
  {setup && <><label>Setup-Code<input type="password" required onChange={e => field('token', e.target.value)} /></label><label>Name<input required onChange={e => field('name', e.target.value)} /></label></>}
- <label>E-Mail des Projektkontos<input type="email" autoComplete="username" autoFocus={!setup && window.matchMedia('(pointer: fine)').matches} required onChange={e => field('email', e.target.value)} /></label><label>Projektpasswort<input type="password" minLength={setup ? 12 : 1} autoComplete={setup ? 'new-password' : 'current-password'} required onChange={e => field('password', e.target.value)} /></label>{err && <p role="alert" className="error">{err}</p>}<button className="primary" disabled={busy}>{busy ? 'Bitte warten …' : setup ? 'Arbeitsbereich einrichten' : 'Anmelden'}<ArrowRight size={16} /></button></form></div></main></div>;
+ <label>E-Mail des Projektkontos<input type="email" autoComplete="username" autoFocus={!setup && window.matchMedia('(pointer: fine)').matches} required onChange={e => field('email', e.target.value)} /></label><label>Projektpasswort<input type="password" minLength={setup ? 12 : 1} autoComplete={setup ? 'new-password' : 'current-password'} required onChange={e => field('password', e.target.value)} /></label>{err && <p role="alert" className="error">{err}</p>}<button className="primary" disabled={busy}>{busy ? 'Bitte warten …' : setup ? 'Arbeitsbereich einrichten' : 'Anmelden'}<ArrowRight size={16} /></button></form><a className="loginBack" href="/">Zurück zum Startmenü</a></div></main></div>;
 }

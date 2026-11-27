@@ -144,3 +144,41 @@
 .sourceSheet td { min-width: 6rem; max-width: 45rem; overflow-wrap: anywhere; }
 .sourceSheet th { background: #f4f6f8; font-weight: 400; }
 .sourceSheet .citedRow td { background: var(--soft); }
+
+.entry{min-height:100dvh;background:#f8f9fb}
+.entry header{height:68px;justify-content:space-between;color:var(--muted);font-size:13px}
+.entryBrand{font-size:22px;font-weight:750;letter-spacing:-.8px;text-decoration:none}
+.entryContent{max-width:1080px;margin:0 auto;padding:clamp(44px,9vh,96px) clamp(20px,5vw,56px) 50px;background:none}
+.entryContent h1{font-size:clamp(32px,5vw,52px);letter-spacing:-.045em;color:var(--navy);line-height:1.12}
+.entryContent>p{margin:13px 0 24px;color:var(--muted);line-height:1.6}
+.entryMenu{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-top:32px}
+.entryCard{display:grid;grid-template-columns:1fr auto;align-items:start;gap:16px;padding:22px;border:1px solid var(--line);border-radius:12px;background:white;text-decoration:none;min-width:0}
+.entryCard .square{grid-column:1/-1}
+.entryCard strong,.entryCard small{display:block;line-height:1.4}
+.entryCard small{margin-top:5px;color:var(--muted);font-size:13px}
+.entryCard>svg{margin-top:2px;color:#64708a}
+.entryFeatured{border-color:#ecb48f;background:#fff8f2}
+.entryCard:hover{border-color:#a3643d;box-shadow:0 4px 14px #161a4210}
+.entryDetail{max-width:850px}
+.entryBack{display:inline-flex;align-items:center;gap:8px;margin-bottom:24px;font-size:14px;text-decoration:none}
+.entryExample,.entrySource,.entrySteps>li{border:1px solid var(--line);border-radius:9px;background:#fff}
+.entryExample>summary,.entrySource>summary{cursor:pointer;padding:14px 16px}
+.entryExample>summary{display:flex;flex-wrap:wrap;align-items:center;gap:10px;color:var(--navy)}
+.entryExample>summary span{margin-left:auto;font-size:13px;color:var(--muted)}
+.entryExample[open]>summary span{display:none}
+.entryExampleContent{padding:0 16px 16px}
+.entryExampleContent h2{font-size:17px;margin:16px 0 8px}
+.entryExampleContent p,.entrySteps p{line-height:1.65;color:#4a5164}
+.entrySource{margin:8px 0}
+.entrySource small{color:var(--muted);margin-left:6px}
+.entrySource blockquote{margin:0 16px 14px}
+.entrySteps{display:grid;gap:10px;margin:20px 0;padding-left:24px}
+.entrySteps>li{padding:12px 16px}
+.entrySource .entrySteps{margin-inline:16px}
+.loginBack{display:inline-flex;align-items:center;gap:8px;margin-top:18px;font-size:13px}
+@media(max-width:760px){
+  .entry header{height:58px}
+  .entryMenu{grid-template-columns:1fr}
+  .entryCard{grid-template-columns:39px 1fr auto;gap:13px;align-items:center;padding:16px}
+  .entryCard .square{grid-column:auto;width:39px;height:39px}
+}

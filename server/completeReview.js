@@ -40,6 +40,6 @@ export async function completeReview(raw, names, ids, request) {
   const pending=names.filter((name,i)=>!validCriterion(items[i]));
   if(pending.length)open.push(pending.length===names.length?'Die Zuordnung der 20 Prüfkriterien ist offen.':'Offene Kriterien: '+pending.join(', ')+'.');
   if(verified.size<ids.length)open.push('Noch zu prüfen: '+(ids.length-verified.size)+' von '+ids.length+' möglichen Gegenbelegen.');
-  if(typeof conflict!=='boolean')open.push('Die Aussage von KI 2 zu möglichen Widersprüchen steht aus.');
+  if(typeof conflict!=='boolean')open.push('Die Aussage von Auditor zu möglichen Widersprüchen steht aus.');
   return {judgment:{...initial,widerspruch:conflict,hinweis:hint,kriterien:items,gegenbelege:[...verified.values()]},open,attempted};
 }

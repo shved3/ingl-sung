@@ -348,7 +348,7 @@ export default function Workspace() {
     <button onClick={() => run(async () => {
       U(false);
       await api({action: 'logout'});
-      window.location.assign('/');
+      window.location.reload();
     })}>Abmelden</button>
   </>;
   return <div className="app"><header><button ref={menuButton} className="mobile icon" aria-label={menu ? "Navigation schließen" : "Navigation öffnen"} aria-expanded={menu} aria-controls="workspace-navigation" onClick={() => U(!menu)}>{menu ? <X /> : <Menu />}</button><Brand /><div className="topEnd"><span>TUHH · Hochschulprojekt</span><div className="headerAccount">{accountActions}</div><div className="avatar" title={data.me?.email}>{(data.me?.name || 'E').slice(0, 1).toUpperCase()}</div></div></header>
@@ -370,7 +370,7 @@ export default function Workspace() {
                 if (!busy && !auth) ask(question);
               }
             }} /><div className="composerLine"><button type="button" className="attach" onClick={() => manager ? pop('upload') : go('Dokumente')}><Paperclip size={16} />{manager ? 'Dokument hinzufügen' : 'Quellen ansehen'}</button><button aria-label="Frage senden" className="send" disabled={busy || auth || !question.trim()}><ArrowUp size={19} /></button></div></form>
- <div className="under"><span><span className={'tinyDot ' + (data.live ? 'green' : '')} />{data.live ? 'KI konfiguriert' : 'Quellensuche'}</span><button onClick={() => go('Dokumente')}>{data.docs.length} zugängliche Dokumente <ChevronRight size={12} /></button></div>{busy && <p role="status" className="wait">Quellenbewertung und gegebenenfalls KI-Prüfungen laufen. Der tatsächliche Prüfverlauf erscheint mit dem Ergebnis …</p>}</div>
+ <div className="under"><span><span className={'tinyDot ' + (data.live ? 'green' : '')} />{data.live ? 'KI konfiguriert' : 'Quellensuche'}</span><button onClick={() => go('Dokumente')}>{data.docs.length} zugängliche Dokumente <ChevronRight size={12} /></button></div>{busy && <p role="status" className="wait">{data.aiEnabled ? 'Die Analyse läuft. Analyst erstellt den belegten Entwurf, anschließend prüft Auditor die Aussagen und Gegenbelege.' : 'Die Quellensuche läuft …'}</p>}</div>
  {!rows.length && <div className="startCards"><button onClick={() => go('Dokumente')}><span className="square"><FolderOpen /></span><div><b>Dokumente</b><small>Quellen verwalten</small></div><ArrowRight size={16} /></button><button onClick={() => go('Freigaben')}><span className="square"><KeyRound /></span><div><b>Freigaben</b><small>Nachweise anfragen</small></div><ArrowRight size={16} /></button></div>}
  </div>}
  {view !== 'Chat' && <section className="workspace"><div className="sectionTitle"><div><h1>{view}</h1><p>{{
@@ -468,7 +468,7 @@ function Login({
     ...old,
     [k]: v
   }));
-  return <div className="login"><header><Brand projectLogin /><small>TUHH · Hochschulprojekt</small></header><main><div className="loginBox"><div className="heroMark"><LockKeyhole /></div><h1>{setup ? 'Arbeitsbereich einrichten' : 'Geschützter Arbeitsbereich'}</h1><p>{setup ? 'Legen Sie das erste Administrationskonto an.' : 'Verwenden Sie das Testkonto, das Ihnen das Projektteam zugeteilt hat.'}</p><p>Studentischer Prototyp für eine ING-Fallstudie. Bitte ausschließlich Zugangsdaten für dieses Hochschulprojekt eingeben. ING-Banking- und Firmenpasswörter gehören nicht hierher.</p><form onSubmit={async e => {
+  return <div className="login"><header><Brand projectLogin /><small>TUHH · Hochschulprojekt</small></header><main><div className="loginBox projectAccess"><div className="heroMark"><LockKeyhole /></div><h1>{setup ? 'Arbeitsbereich einrichten' : 'Bei Evidence anmelden'}</h1><p>{setup ? 'Legen Sie das erste Administrationskonto an.' : 'Melden Sie sich mit Ihrem persönlichen Projektkonto an.'}</p><p>Evidence ist ein Hochschulprojekt der TUHH zur ING-Fallstudie. Verwenden Sie ausschließlich Ihre Evidence-Zugangsdaten.</p><form onSubmit={async e => {
           e.preventDefault();
           B(true);
           E('');
@@ -485,5 +485,5 @@ function Login({
           }
         }}>
  {setup && <><label>Setup-Code<input type="password" required onChange={e => field('token', e.target.value)} /></label><label>Name<input required onChange={e => field('name', e.target.value)} /></label></>}
- <label>E-Mail des Projektkontos<input type="email" autoComplete="username" autoFocus={!setup && window.matchMedia('(pointer: fine)').matches} required onChange={e => field('email', e.target.value)} /></label><label>Projektpasswort<input type="password" minLength={setup ? 12 : 1} autoComplete={setup ? 'new-password' : 'current-password'} required onChange={e => field('password', e.target.value)} /></label>{err && <p role="alert" className="error">{err}</p>}<button className="primary" disabled={busy}>{busy ? 'Bitte warten …' : setup ? 'Arbeitsbereich einrichten' : 'Anmelden'}<ArrowRight size={16} /></button></form><a className="loginBack" href="/">Zurück zum Startmenü</a></div></main></div>;
+ <label>E-Mail des Projektkontos<input type="email" autoComplete="username" autoFocus={!setup && window.matchMedia('(pointer: fine)').matches} required onChange={e => field('email', e.target.value)} /></label><label>Projektpasswort<input type="password" minLength={setup ? 12 : 1} autoComplete={setup ? 'new-password' : 'current-password'} required onChange={e => field('password', e.target.value)} /></label>{err && <p role="alert" className="error">{err}</p>}<button className="primary" disabled={busy}>{busy ? 'Bitte warten …' : setup ? 'Arbeitsbereich einrichten' : 'Anmelden'}<ArrowRight size={16} /></button></form></div></main></div>;
 }
